@@ -38,12 +38,7 @@ app.use(bodyParser.json());
 // cors
 // Cấu hình CORS chi tiết
 // Danh sách origin được phép gọi API
-const allowedOrigins = [
-  'https://task-management-eight-delta.vercel.app',
-  'http://localhost:3000',        // local dev
-  'https://staging.example.com',  // staging
-  'https://example.com',          // production
-];
+const allowedOrigins = process.env.CORS?.split(",") || [];
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
