@@ -1,81 +1,52 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Button,
-  Card,
-  DatePicker,
-  Input,
-  List,
-  Modal,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tabs,
-  message,
+  Button, Card, DatePicker, Input, Select, Space, Table, Tag, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import { fetchProjectDetail, fetchProjectMembers, fetchProjectTasks, fetchProjects, Project } from '../api/projects';
-import { FilterOutlined } from '@ant-design/icons';
-import MembersPanel from '../components/MembersPanel';
-
-interface PaginationServer {
-  currentPage?: number;
-  limit?: number;
-  totalItems?: number;
-  totalPages?: number;
-}
+import { Project, ProjectStatus, PROJECT_STATUS_OPTIONS, PROJECT_STATUS_COLOR } from '../types';
+import { fetchProjects } from '../api/projects';
+import { EyeOutlined } from '@ant-design/icons';
 
 export default function ProjectsList() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
-  const [keyword, setKeyword] = useState('');
-  const [status, setStatus] = useState<string | ''>('');
-  const [deadline, setDeadline] = useState<string | undefined>(undefined);
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(4);
   const [total, setTotal] = useState(0);
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortValue, setSortValue] = useState<'asc' | 'desc' | ''>('');
 
-  // Detail modal
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<Project | null>(null);
-  const [members, setMembers] = useState<{ admin: any[]; user: any[] } | null>(null);
-  const [tasks, setTasks] = useState<any[]>([]);
+  const page = parseInt(searchParams.get('page') || '1');
+  const limit = parseInt(searchParams.get('limit') || '4');
+  const keyword = searchParams.get('keyword') || '';
+  const status = searchParams.get('status') || '';
+  const deadline = searchParams.get('deadline') || '';
+  const sortKey = searchParams.get('sort_key') || '';
+  const sortValue = searchParams.get('sort_value') || '';
 
-  const columns: ColumnsType<Project> = useMemo(
-    () => [
-      {
-        title: 'Title',
-        dataIndex: 'title',
-        render: (text, record) => (
-          <a onClick={() => openDetail(record._id)}>{text}</a>
-        ),
-      },
-      {
-        title: 'Status',
-        dataIndex: 'status',
-        render: (v: string) => <Tag>{v}</Tag>,
-      },
-      { title: 'Deadline', dataIndex: 'deadline' },
-      {
-        title: 'Created by',
-        dataIndex: ['createdBy', 'fullName'],
-        render: (v: string) => v || '—',
-      },
-    ],
-    []
-  );
+  const setParam = (key: string, val: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (val) sp.set(key, val); else sp.delete(key);
+    if (key !== 'page') sp.set('page', '1');
+    setSearchParams(sp);
+  };
+  const setPage = (p: number) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('page', String(p));
+    setSearchParams(sp);
+  };
+  const setLimit = (l: number) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('limit', String(l));
+    sp.set('page', '1');
+    setSearchParams(sp);
+  };
 
   async function load() {
     setLoading(true);
     try {
       const res = await fetchProjects({
-        page,
-        limit,
+        page, limit,
         keyword: keyword || undefined,
         status: status || undefined,
         deadline: deadline || undefined,
@@ -83,15 +54,9 @@ export default function ProjectsList() {
         sort_value: sortValue || undefined,
       });
       setData(res.data || []);
-      const pg: PaginationServer = res.pagination || {};
-      const explicitTotal = [
-        pg.totalItems,
-        (res as any).totalItems,
-        (res as any).total,
-      ].find((v) => typeof v === 'number' && v >= 0) as number | undefined;
-      const totalFromPages = (pg.totalPages || 0) * (pg.limit || limit);
-      const inferred = (page - 1) * limit + (res.data?.length || 0) + ((res.data?.length || 0) === limit ? 1 : 0);
-      setTotal(Math.max(explicitTotal || 0, totalFromPages, inferred));
+      const pg = res.pagination || {};
+      const t = pg.totalItems || pg.total || (pg.totalPages * pg.limit) || 0;
+      setTotal(t || (page - 1) * limit + (res.data?.length || 0));
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi tải dự án');
     } finally {
@@ -99,63 +64,55 @@ export default function ProjectsList() {
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, limit, status, deadline, sortKey, sortValue]);
+  useEffect(() => { load(); }, [searchParams.toString()]);
 
-  // Initialize from URL
-  useEffect(() => {
-    const sp = Object.fromEntries(searchParams.entries());
-    if (sp.page) setPage(parseInt(sp.page));
-    if (sp.limit) setLimit(parseInt(sp.limit));
-    if (sp.keyword) setKeyword(sp.keyword);
-    if (sp.status) setStatus(sp.status);
-    if (sp.deadline) setDeadline(sp.deadline);
-    if (sp.sort_key) setSortKey(sp.sort_key);
-    if (sp.sort_value) setSortValue(sp.sort_value as 'asc' | 'desc');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Keep URL in sync
-  useEffect(() => {
-    const sp: Record<string, string> = {};
-    if (page) sp.page = String(page);
-    if (limit) sp.limit = String(limit);
-    if (keyword) sp.keyword = keyword;
-    if (status) sp.status = status;
-    if (deadline) sp.deadline = deadline;
-    if (sortKey) sp.sort_key = sortKey;
-    if (sortValue) sp.sort_value = sortValue;
-    setSearchParams(sp);
-  }, [page, limit, keyword, status, deadline, sortKey, sortValue, setSearchParams]);
-
-  const openDetail = async (id: string) => {
-    try {
-      const [d, m, t] = await Promise.all([
-        fetchProjectDetail(id),
-        fetchProjectMembers(id),
-        fetchProjectTasks(id),
-      ]);
-      setDetail(d.data);
-      setMembers(m.data || { admin: [], user: [] });
-      setTasks(t.data || []);
-      setOpen(true);
-    } catch (err: any) {
-      message.error(err?.response?.data?.message || 'Lỗi tải chi tiết');
-    }
-  };
+  const columns: ColumnsType<Project> = [
+    {
+      title: 'Tên dự án',
+      dataIndex: 'title',
+      render: (text, record) => (
+        <Link to={`/projects/${record._id}`} style={{ fontWeight: 500 }}>{text}</Link>
+      ),
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      render: (v: ProjectStatus) => (
+        <Tag color={PROJECT_STATUS_COLOR[v]}>
+          {PROJECT_STATUS_OPTIONS.find(o => o.value === v)?.label || v}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Deadline',
+      dataIndex: 'deadline',
+      render: (v) => v ? dayjs(v).format('DD/MM/YYYY') : '—',
+    },
+    {
+      title: 'Tạo bởi',
+      dataIndex: ['createdBy', 'fullName'],
+      render: (v: string) => v || '—',
+    },
+    {
+      title: 'Hành động',
+      key: 'actions',
+      render: (_, record) => (
+        <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/projects/${record._id}`)}>
+          Chi tiết
+        </Button>
+      ),
+    },
+  ];
 
   return (
-    <Card title="Projects">
-      <Space style={{ marginBottom: 16 }} wrap>
+    <Card title="Danh sách Projects">
+      <Space style={{ marginBottom: 16, width: '100%' }} wrap>
         <Input.Search
           placeholder="Tìm theo tiêu đề/mô tả"
           allowClear
-          enterButton={<FilterOutlined />}
-          onSearch={() => load()}
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => setParam('keyword', e.target.value)}
+          onSearch={() => load()}
           style={{ width: 280 }}
         />
         <Select
@@ -163,40 +120,31 @@ export default function ProjectsList() {
           allowClear
           style={{ width: 180 }}
           value={status || undefined}
-          onChange={(v) => setStatus((v as string) || '')}
-          options={[
-            { value: 'initial', label: 'Initial' },
-            { value: 'doing', label: 'Doing' },
-            { value: 'finish', label: 'Finish' },
-            { value: 'pending', label: 'Pending' },
-            { value: 'notFinish', label: 'Not finish' },
-          ]}
+          onChange={(v) => setParam('status', v || '')}
+          options={PROJECT_STATUS_OPTIONS}
         />
         <DatePicker
           placeholder="Deadline"
-          onChange={(d) => setDeadline(d ? d.format('YYYY-MM-DD') : undefined)}
+          onChange={(d) => setParam('deadline', d ? d.format('YYYY-MM-DD') : '')}
+          value={deadline ? dayjs(deadline) : undefined}
           style={{ width: 180 }}
-          value={deadline ? (dayjs(deadline) as any) : undefined}
         />
         <Select
-          placeholder="Sort theo cột"
+          placeholder="Sort theo"
           allowClear
-          style={{ width: 200 }}
+          style={{ width: 160 }}
           value={sortKey || undefined}
-          onChange={(v) => setSortKey(v || '')}
-          options={[{ value: 'title', label: 'Title' }, { value: 'deadline', label: 'Deadline' }]}
+          onChange={(v) => setParam('sort_key', v || '')}
+          options={[{ value: 'title', label: 'Tiêu đề' }, { value: 'deadline', label: 'Deadline' }]}
         />
         <Select
           placeholder="Thứ tự"
           allowClear
-          style={{ width: 160 }}
+          style={{ width: 130 }}
           value={sortValue || undefined}
-          onChange={(v) => setSortValue((v as any) || '')}
+          onChange={(v) => setParam('sort_value', v || '')}
           options={[{ value: 'asc', label: 'Tăng dần' }, { value: 'desc', label: 'Giảm dần' }]}
         />
-        <Button icon={<FilterOutlined />} onClick={load}>
-          Lọc
-        </Button>
       </Space>
 
       <Table
@@ -210,75 +158,11 @@ export default function ProjectsList() {
           total,
           showSizeChanger: true,
           pageSizeOptions: [4, 8, 12, 20, 50] as any,
-          showTotal: (t) => `Tổng ${t} project`,
-          onChange: (p, ps) => {
-            setPage(p);
-            setLimit(ps);
-          },
-          onShowSizeChange: (_, ps) => {
-            setPage(1);
-            setLimit(ps);
-          },
+          showTotal: (t) => `Tổng ${t} dự án`,
+          onChange: (p, ps) => { setPage(p); setLimit(ps); },
+          onShowSizeChange: (_, ps) => { setPage(1); setLimit(ps); },
         }}
       />
-
-      <Modal
-        title={detail?.title || 'Chi tiết dự án'}
-        open={open}
-        onCancel={() => setOpen(false)}
-        footer={null}
-        centered
-        width={720}
-      >
-        {detail && (
-          <Tabs
-            items={[
-              {
-                key: 'overview',
-                label: 'Tổng quan',
-                children: (
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    <Space size={24} wrap>
-                      <Tag>{detail.status}</Tag>
-                      <span><b>Deadline:</b> {detail.deadline || '—'}</span>
-                      <span><b>Tạo bởi:</b> {detail.createdBy?.fullName || '—'}</span>
-                    </Space>
-                    {detail.description && (
-                      <div>
-                        <b>Mô tả:</b>
-                        <div style={{ whiteSpace: 'pre-wrap' }}>{detail.description}</div>
-                      </div>
-                    )}
-                  </Space>
-                ),
-              },
-              {
-                key: 'members',
-                label: 'Thành viên',
-                children: <MembersPanel admin={members?.admin} user={members?.user} />,
-              },
-              {
-                key: 'tasks',
-                label: 'Tasks',
-                children: (
-                  <List
-                    dataSource={tasks}
-                    locale={{ emptyText: 'Chưa có task' }}
-                    renderItem={(it: any) => (
-                      <List.Item>
-                        <Space>
-                          <span>{it.title}</span>
-                          <Tag>{it.status}</Tag>
-                        </Space>
-                      </List.Item>
-                    )}
-                  />
-                ),
-              },
-            ]}
-          />
-        )}
-      </Modal>
     </Card>
   );
 }

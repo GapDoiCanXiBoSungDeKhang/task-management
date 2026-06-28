@@ -1,16 +1,12 @@
 import { Button, Card, Form, Input, Typography, message } from 'antd';
 import { register } from '../api/user';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 export default function Register() {
   const navigate = useNavigate();
 
-  const onFinish = async (values: { fullName: string; email: string; password: string; confirmPassword: string }) => {
+  const onFinish = async (values: any) => {
     try {
-      if (values.password !== values.confirmPassword) {
-        message.warning('Mật khẩu nhập lại không khớp');
-        return;
-      }
       await register(values);
       message.success('Đăng ký thành công, vui lòng đăng nhập');
       navigate('/login');
@@ -20,25 +16,36 @@ export default function Register() {
   };
 
   return (
-    <div style={{ display: 'grid', placeItems: 'center', height: '80vh' }}>
-      <Card title="Đăng ký" style={{ width: 420 }}>
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '70vh' }}>
+      <Card title="Đăng ký tài khoản" style={{ width: 420 }}>
         <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item label="Họ tên" name="fullName" rules={[{ required: true, message: 'Nhập họ tên' }]}> 
-            <Input placeholder="Nguyễn Văn A" />
+          <Form.Item label="Họ tên" name="fullName" rules={[{ required: true, message: 'Nhập họ tên' }]}>
+            <Input />
           </Form.Item>
-          <Form.Item label="Email" name="email" rules={[{ required: true, type: 'email', message: 'Nhập email hợp lệ' }]}> 
-            <Input type="email" placeholder="you@example.com" />
+          <Form.Item label="Email" name="email" rules={[{ required: true, type: 'email', message: 'Nhập email hợp lệ' }]}>
+            <Input />
           </Form.Item>
-          <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, message: 'Nhập mật khẩu' }]}> 
-            <Input.Password placeholder="••••••••" />
+          <Form.Item label="Mật khẩu" name="password" rules={[{ required: true, min: 6, message: 'Tối thiểu 6 ký tự' }]}>
+            <Input.Password />
           </Form.Item>
-          <Form.Item label="Nhập lại mật khẩu" name="confirmPassword" dependencies={["password"]} rules={[{ required: true, message: 'Nhập lại mật khẩu' }]}> 
-            <Input.Password placeholder="••••••••" />
+          <Form.Item
+            label="Xác nhận mật khẩu"
+            name="confirmPassword"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: 'Xác nhận mật khẩu' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) return Promise.resolve();
+                  return Promise.reject(new Error('Mật khẩu không khớp'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Đăng ký
-          </Button>
-          <Typography.Paragraph style={{ marginTop: 12 }}>
+          <Button type="primary" htmlType="submit" block>Đăng ký</Button>
+          <Typography.Paragraph style={{ marginTop: 12, textAlign: 'center' }}>
             Đã có tài khoản? <Link to="/login">Đăng nhập</Link>
           </Typography.Paragraph>
         </Form>

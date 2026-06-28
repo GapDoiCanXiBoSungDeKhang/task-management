@@ -1,14 +1,5 @@
 import api from './client';
-
-export interface Project {
-  _id: string;
-  title: string;
-  description?: string;
-  status?: string;
-  deadline?: string;
-  createdBy?: { createdById?: string; fullName?: string };
-  members?: string[];
-}
+import { Project } from '../types';
 
 export async function fetchProjects(params: any) {
   const res = await api.get('/api/v1/projects', { params });

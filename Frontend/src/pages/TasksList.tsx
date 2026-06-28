@@ -1,178 +1,69 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Button,
-  Card,
-  Modal,
-  Input,
-  Popconfirm,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Tabs,
-  message,
+  Button, Card, Input, Popconfirm, Select, Space, Table, Tag, message,
 } from 'antd';
-import { DeleteOutlined, FilterOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, EyeOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import api from '../api/client';
-import { Task, TaskStatus } from '../types';
+import { Task, TaskStatus, TASK_STATUS_OPTIONS, TASK_STATUS_COLOR } from '../types';
 import TaskForm from '../components/TaskForm';
 import {
-  changeMulti,
-  changeTaskStatus,
-  createTask,
-  deleteTask,
-  editTask,
-  fetchTaskDetail,
-  fetchTaskSubtasks,
-  fetchTaskUsers,
+  fetchTasks, changeMulti, changeTaskStatus, createTask, deleteTask, editTask,
 } from '../api/tasks';
-import type { CSSProperties } from 'react';
-import MembersPanel from '../components/MembersPanel';
-import TaskDetailModal from '../components/TaskDetailModal';
-
-interface PaginationServer {
-  page?: number;
-  currentPage?: number;
-  limit: number;
-  totalItems?: number;
-  totalPages?: number;
-}
+import dayjs from 'dayjs';
 
 export default function TasksList() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
-  const [keyword, setKeyword] = useState('');
-  const [status, setStatus] = useState<TaskStatus | ''>('');
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(4);
   const [total, setTotal] = useState(0);
-  const [sortKey, setSortKey] = useState<string>('');
-  const [sortValue, setSortValue] = useState<'asc' | 'desc' | ''>('');
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-
-  // Detail modal state
-  const [openDetail, setOpenDetail] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-
-  // Modal form state
   const [formOpen, setFormOpen] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [editing, setEditing] = useState<Task | null>(null);
 
-  const columns: ColumnsType<Task> = useMemo(
-    () => [
-      {
-        title: 'Title',
-        dataIndex: 'title',
-        render: (text, record) => (
-          <Button type="link" onClick={() => handleOpenDetail(record._id)} style={{ padding: 0 }}>
-            {text}
-          </Button>
-        ),
-      },
-      {
-        title: 'Status',
-        dataIndex: 'status',
-        render: (v: TaskStatus) => (
-          <Tag
-            color={
-              v === 'finish'
-                ? 'green'
-                : v === 'doing'
-                ? 'blue'
-                : v === 'pending'
-                ? 'orange'
-                : v === 'notFinish'
-                ? 'red'
-                : 'default'
-            }
-          >
-            {v}
-          </Tag>
-        ),
-      },
-      { title: 'Start', dataIndex: 'timeStart' },
-      { title: 'Finish', dataIndex: 'timeFinish' },
-      {
-        title: 'Actions',
-        key: 'actions',
-        render: (_, record) => (
-          <Space>
-            <Select
-              size="small"
-              placeholder="Đổi trạng thái"
-              style={{ width: 140 }}
-              onChange={(v) => handleChangeStatus(record._id, v as TaskStatus)}
-              options={[
-                { value: 'initial', label: 'initial' },
-                { value: 'doing', label: 'doing' },
-                { value: 'finish', label: 'finish' },
-                { value: 'pending', label: 'pending' },
-                { value: 'notFinish', label: 'notFinish' },
-              ]}
-            />
-            <Button size="small" onClick={() => openEdit(record)}>
-              Sửa
-            </Button>
-            <Popconfirm
-              title="Xóa task này?"
-              onConfirm={() => handleDelete(record._id)}
-              okText="Xóa"
-              cancelText="Hủy"
-            >
-              <Button size="small" danger>
-                Xóa
-              </Button>
-            </Popconfirm>
-          </Space>
-        ),
-      },
-    ],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
-  );
+  // Read from URL
+  const page = parseInt(searchParams.get('page') || '1');
+  const limit = parseInt(searchParams.get('limit') || '4');
+  const keyword = searchParams.get('keyword') || '';
+  const status = (searchParams.get('status') || '') as TaskStatus | '';
+  const sortKey = searchParams.get('sort_key') || '';
+  const sortValue = (searchParams.get('sort_value') || '') as 'asc' | 'desc' | '';
 
-  async function fetchData() {
+  // Helpers to update URL params
+  const setParam = (key: string, val: string) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (val) sp.set(key, val); else sp.delete(key);
+    if (key !== 'page') sp.set('page', '1');
+    setSearchParams(sp);
+  };
+  const setPage = (p: number) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('page', String(p));
+    setSearchParams(sp);
+  };
+  const setLimit = (l: number) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('limit', String(l));
+    sp.set('page', '1');
+    setSearchParams(sp);
+  };
+
+  async function load() {
     setLoading(true);
     try {
-      const res = await api.get('/api/v1/tasks', {
-        params: {
-          page,
-          limit,
-          keyword: keyword || undefined,
-          status: status || undefined,
-          sort_key: sortKey || undefined,
-          sort_value: sortValue || undefined,
-        },
+      const res = await fetchTasks({
+        page, limit,
+        keyword: keyword || undefined,
+        status: status || undefined,
+        sort_key: sortKey || undefined,
+        sort_value: sortValue || undefined,
       });
-      setData(res.data.data);
-      const pg: PaginationServer = res.data.pagination || {} as any;
-      // Prefer explicit totals from various common fields
-      const explicitTotals = [
-        (pg as any).totalItems,
-        (pg as any).total,
-        (res.data as any).totalItems,
-        (res.data as any).total,
-        (res.data as any).count,
-      ].find((v) => typeof v === 'number' && v >= 0) as number | undefined;
-
-      const totalFromPages = (pg?.totalPages || 0) * (pg?.limit || limit);
-      const currentCount: number = Array.isArray(res.data.data) ? res.data.data.length : 0;
-      // Minimal inferred total: what we already saw + maybe 1 more if page is full
-      const inferredMinimal = (page - 1) * limit + currentCount + (currentCount === limit ? 1 : 0);
-      const finalTotal = Math.max(
-        Number.isFinite(explicitTotals as number) ? (explicitTotals as number) : 0,
-        totalFromPages,
-        inferredMinimal
-      );
-      setTotal(finalTotal);
-      // If backend returns currentPage, keep FE in sync
-      if (pg && typeof pg.currentPage === 'number' && pg.currentPage !== page) {
-        setPage(pg.currentPage);
-      }
+      setData(res.data || []);
+      const pg = res.pagination || {};
+      const t = pg.totalItems || pg.total || (pg.totalPages * pg.limit) || 0;
+      setTotal(t || (page - 1) * limit + (res.data?.length || 0));
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi tải dữ liệu');
     } finally {
@@ -180,41 +71,13 @@ export default function TasksList() {
     }
   }
 
-  useEffect(() => {
-    // Initialize state from URL on first mount
-    const sp = Object.fromEntries(searchParams.entries());
-    if (sp.page) setPage(parseInt(sp.page));
-    if (sp.limit) setLimit(parseInt(sp.limit));
-    if (sp.keyword) setKeyword(sp.keyword);
-    if (sp.status) setStatus(sp.status as TaskStatus);
-    if (sp.sort_key) setSortKey(sp.sort_key);
-    if (sp.sort_value) setSortValue(sp.sort_value as 'asc' | 'desc');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { load(); }, [searchParams.toString()]);
 
-  // Keep URL in sync when states change
-  useEffect(() => {
-    const sp: Record<string, string> = {};
-    if (page) sp.page = String(page);
-    if (limit) sp.limit = String(limit);
-    if (keyword) sp.keyword = keyword;
-    if (status) sp.status = status;
-    if (sortKey) sp.sort_key = sortKey;
-    if (sortValue) sp.sort_value = sortValue;
-    setSearchParams(sp);
-  }, [page, limit, keyword, status, sortKey, sortValue, setSearchParams]);
-
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, limit, status, sortKey, sortValue]);
-
-  // Handlers
   const handleChangeStatus = async (id: string, s: TaskStatus) => {
     try {
       await changeTaskStatus(id, s);
       message.success('Cập nhật trạng thái thành công');
-      fetchData();
+      load();
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi cập nhật');
     }
@@ -224,20 +87,10 @@ export default function TasksList() {
     try {
       await deleteTask(id);
       message.success('Xóa thành công');
-      fetchData();
+      load();
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi xóa');
     }
-  };
-
-  const openCreate = () => {
-    setEditing(null);
-    setFormOpen(true);
-  };
-
-  const openEdit = (t: Task) => {
-    setEditing(t);
-    setFormOpen(true);
   };
 
   const handleSubmitForm = async (vals: Partial<Task>) => {
@@ -251,7 +104,7 @@ export default function TasksList() {
         message.success('Tạo thành công');
       }
       setFormOpen(false);
-      fetchData();
+      load();
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi lưu');
     } finally {
@@ -260,150 +113,135 @@ export default function TasksList() {
   };
 
   const handleBulk = async (key: string, value: any) => {
-    if (!selectedRowKeys.length) {
-      message.warning('Chọn ít nhất 1 task');
-      return;
-    }
+    if (!selectedRowKeys.length) { message.warning('Chọn ít nhất 1 task'); return; }
     try {
       await changeMulti(selectedRowKeys as string[], key, value);
       message.success('Cập nhật hàng loạt thành công');
       setSelectedRowKeys([]);
-      fetchData();
+      load();
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi cập nhật');
     }
   };
 
-  const handleOpenDetail = (id: string) => {
-    setSelectedTaskId(id);
-    setOpenDetail(true);
-  };
-
-  // Recursive renderer for subtask cards
-  const statusColor = (v: TaskStatus) =>
-    v === 'finish' ? 'green' : v === 'doing' ? 'blue' : v === 'pending' ? 'orange' : v === 'notFinish' ? 'red' : 'default';
-
-  const cardStyle: CSSProperties = { marginBottom: 12 };
-  const nestedStyle: CSSProperties = { borderLeft: '2px dashed #eee', paddingLeft: 12, marginTop: 8 };
-
-  const renderSubtaskCards = (items: any[]) => {
-    if (!items || !items.length) return <i>Không có subtask</i>;
-    return (
-      <div>
-        {items.map((it) => (
-          <div key={it._id} style={cardStyle}>
-            <Card
-              size="small"
-              title={
-                <Space>
-                  <span>{it.title}</span>
-                  <Tag color={statusColor(it.status as TaskStatus)}>{it.status}</Tag>
-                </Space>
-              }
-              extra={<Button size="small" onClick={() => handleOpenDetail(it._id)}>Chi tiết</Button>}
-            >
-              <div>
-                {it.content && (
-                  <div style={{ color: '#666', marginBottom: 8 }}>{it.content}</div>
-                )}
-                <Space size={24} wrap>
-                  <span><b>Bắt đầu:</b> {it.timeStart}</span>
-                  <span><b>Kết thúc:</b> {it.timeFinish}</span>
-                </Space>
-                {it.childs && it.childs.length > 0 && (
-                  <div style={nestedStyle}>{renderSubtaskCards(it.childs)}</div>
-                )}
-              </div>
-            </Card>
-          </div>
-        ))}
-      </div>
-    );
-  };
+  const columns: ColumnsType<Task> = [
+    {
+      title: 'Tiêu đề',
+      dataIndex: 'title',
+      render: (text, record) => (
+        <Link to={`/tasks/${record._id}`} style={{ fontWeight: 500 }}>{text}</Link>
+      ),
+    },
+    {
+      title: 'Trạng thái',
+      dataIndex: 'status',
+      render: (v: TaskStatus) => (
+        <Tag color={TASK_STATUS_COLOR[v]}>
+          {TASK_STATUS_OPTIONS.find(o => o.value === v)?.label || v}
+        </Tag>
+      ),
+    },
+    {
+      title: 'Bắt đầu',
+      dataIndex: 'timeStart',
+      render: (v) => v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '—',
+    },
+    {
+      title: 'Kết thúc',
+      dataIndex: 'timeFinish',
+      render: (v) => v ? dayjs(v).format('DD/MM/YYYY HH:mm') : '—',
+    },
+    {
+      title: 'Hành động',
+      key: 'actions',
+      render: (_, record) => (
+        <Space size="small" wrap>
+          <Select
+            size="small"
+            placeholder="Đổi trạng thái"
+            style={{ width: 130 }}
+            value={record.status}
+            onChange={(v) => handleChangeStatus(record._id, v as TaskStatus)}
+            options={TASK_STATUS_OPTIONS}
+          />
+          <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/tasks/${record._id}`)}>
+            Chi tiết
+          </Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(record); setFormOpen(true); }}>
+            Sửa
+          </Button>
+          <Popconfirm title="Xóa task này?" onConfirm={() => handleDelete(record._id)} okText="Xóa" cancelText="Hủy">
+            <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <Card
-      title="Tasks"
+      title="Danh sách Tasks"
       extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
           Tạo Task
         </Button>
       }
     >
-      <Space style={{ marginBottom: 16, width: '100%' }} wrap>
+      {/* Filters */}
+      <Space style={{ marginBottom: 16, width: '100%', flexWrap: 'wrap' }} wrap>
         <Input.Search
           placeholder="Tìm theo tiêu đề"
           allowClear
-          enterButton={<FilterOutlined />}
-          onSearch={() => fetchData()}
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => setParam('keyword', e.target.value)}
+          onSearch={() => load()}
           style={{ width: 260 }}
         />
         <Select
           placeholder="Trạng thái"
           allowClear
-          style={{ width: 200 }}
+          style={{ width: 180 }}
           value={status || undefined}
-          onChange={(v) => setStatus((v as TaskStatus) || '')}
-          options={[
-            { value: 'initial', label: 'Initial' },
-            { value: 'doing', label: 'Doing' },
-            { value: 'finish', label: 'Finish' },
-            { value: 'pending', label: 'Pending' },
-            { value: 'notFinish', label: 'Not finish' },
-          ]}
+          onChange={(v) => setParam('status', v || '')}
+          options={TASK_STATUS_OPTIONS}
         />
         <Select
-          placeholder="Sort theo cột"
+          placeholder="Sort theo"
           allowClear
-          style={{ width: 200 }}
+          style={{ width: 160 }}
           value={sortKey || undefined}
-          onChange={(v) => setSortKey(v || '')}
+          onChange={(v) => setParam('sort_key', v || '')}
           options={[
-            { value: 'title', label: 'Title' },
-            { value: 'timeStart', label: 'Time start' },
-            { value: 'timeFinish', label: 'Time finish' },
+            { value: 'title', label: 'Tiêu đề' },
+            { value: 'timeStart', label: 'Ngày bắt đầu' },
+            { value: 'timeFinish', label: 'Ngày kết thúc' },
           ]}
         />
         <Select
           placeholder="Thứ tự"
           allowClear
-          style={{ width: 160 }}
+          style={{ width: 130 }}
           value={sortValue || undefined}
-          onChange={(v) => setSortValue((v as any) || '')}
-          options={[
-            { value: 'asc', label: 'Tăng dần' },
-            { value: 'desc', label: 'Giảm dần' },
-          ]}
+          onChange={(v) => setParam('sort_value', v || '')}
+          options={[{ value: 'asc', label: 'Tăng dần' }, { value: 'desc', label: 'Giảm dần' }]}
         />
-        <Button icon={<FilterOutlined />} onClick={fetchData}>
-          Lọc
-        </Button>
-
-        <span style={{ flex: 1 }} />
-
-        <Select
-          placeholder="Đổi trạng thái hàng loạt"
-          style={{ width: 240 }}
-          onChange={(v) => handleBulk('status', v)}
-          options={[
-            { value: 'initial', label: 'Initial' },
-            { value: 'doing', label: 'Doing' },
-            { value: 'finish', label: 'Finish' },
-            { value: 'pending', label: 'Pending' },
-            { value: 'notFinish', label: 'Not finish' },
-          ]}
-        />
-        <Popconfirm
-          title="Xóa các task đã chọn?"
-          onConfirm={() => handleBulk('deleted', true)}
-          okText="Xóa"
-          cancelText="Hủy"
-        >
-          <Button danger icon={<DeleteOutlined />}>Xóa hàng loạt</Button>
-        </Popconfirm>
       </Space>
+
+      {/* Bulk actions */}
+      {selectedRowKeys.length > 0 && (
+        <Space style={{ marginBottom: 12 }} wrap>
+          <span style={{ color: '#666' }}>Đã chọn {selectedRowKeys.length} task:</span>
+          <Select
+            placeholder="Đổi trạng thái hàng loạt"
+            style={{ width: 200 }}
+            onChange={(v) => handleBulk('status', v)}
+            options={TASK_STATUS_OPTIONS}
+          />
+          <Popconfirm title="Xóa các task đã chọn?" onConfirm={() => handleBulk('deleted', true)} okText="Xóa" cancelText="Hủy">
+            <Button danger icon={<DeleteOutlined />}>Xóa hàng loạt</Button>
+          </Popconfirm>
+        </Space>
+      )}
 
       <Table
         rowKey="_id"
@@ -418,14 +256,8 @@ export default function TasksList() {
           showSizeChanger: true,
           pageSizeOptions: [4, 8, 12, 20, 50] as any,
           showTotal: (t) => `Tổng ${t} task`,
-          onChange: (p, ps) => {
-            setPage(p);
-            setLimit(ps);
-          },
-          onShowSizeChange: (_, ps) => {
-            setPage(1);
-            setLimit(ps);
-          },
+          onChange: (p, ps) => { setPage(p); setLimit(ps); },
+          onShowSizeChange: (_, ps) => { setPage(1); setLimit(ps); },
         }}
       />
 
@@ -435,16 +267,6 @@ export default function TasksList() {
         initialValues={editing || undefined}
         onCancel={() => setFormOpen(false)}
         onSubmit={handleSubmitForm}
-      />
-
-      <TaskDetailModal
-        open={openDetail}
-        taskId={selectedTaskId}
-        initialTask={data.find((t) => t._id === selectedTaskId) || null}
-        onClose={() => {
-          setOpenDetail(false);
-          setSelectedTaskId(null);
-        }}
       />
     </Card>
   );

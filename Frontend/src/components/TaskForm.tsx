@@ -1,5 +1,6 @@
 import { DatePicker, Form, Input, Modal, Select } from 'antd';
-import { Task, TaskStatus } from '../types';
+import { Task } from '../types';
+import { TASK_STATUS_OPTIONS } from '../types';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { fetchUsersDropdowns } from '../api/tasks';
@@ -22,11 +23,10 @@ export default function TaskForm({ open, loading, initialValues, onCancel, onSub
         title: initialValues?.title,
         content: initialValues?.content,
         status: initialValues?.status || 'initial',
-        timeStart: initialValues?.timeStart ? (dayjs(initialValues.timeStart) as any) : undefined,
-        timeFinish: initialValues?.timeFinish ? (dayjs(initialValues.timeFinish) as any) : undefined,
+        timeStart: initialValues?.timeStart ? dayjs(initialValues.timeStart) as any : undefined,
+        timeFinish: initialValues?.timeFinish ? dayjs(initialValues.timeFinish) as any : undefined,
         listUsers: (initialValues as any)?.listUsers || [],
       } as any);
-      // load dropdown options
       fetchUsersDropdowns()
         .then((res) => {
           const acc = (res?.data?.accounts || []).map((a: any) => ({ label: `${a.fullName} (admin)`, value: a._id }));
@@ -37,52 +37,44 @@ export default function TaskForm({ open, loading, initialValues, onCancel, onSub
     }
   }, [open, initialValues, form]);
 
+  const handleOk = () => {
+    form.validateFields().then((vals) => {
+      const payload: Partial<Task> = {
+        ...vals,
+        timeStart: (vals as any).timeStart ? (vals as any).timeStart.toISOString?.() : undefined,
+        timeFinish: (vals as any).timeFinish ? (vals as any).timeFinish.toISOString?.() : undefined,
+        listUsers: (vals as any).listUsers || [],
+      };
+      onSubmit(payload);
+    }).catch(() => {});
+  };
+
   return (
     <Modal
-      title={initialValues?._id ? 'Chỉnh sửa Task' : 'Tạo Task'}
+      title={initialValues?._id ? 'Chỉnh sửa Task' : 'Tạo Task mới'}
       open={open}
       confirmLoading={loading}
       onCancel={onCancel}
-      onOk={() => {
-        form
-          .validateFields()
-          .then((vals) => {
-            const payload: Partial<Task> = {
-              ...vals,
-              timeStart: (vals as any).timeStart ? (vals as any).timeStart.toISOString?.() : undefined,
-              timeFinish: (vals as any).timeFinish ? (vals as any).timeFinish.toISOString?.() : undefined,
-              listUsers: (vals as any).listUsers || [],
-            };
-            onSubmit(payload);
-          })
-          .catch(() => {});
-      }}
+      onOk={handleOk}
       okText={initialValues?._id ? 'Lưu' : 'Tạo'}
       cancelText="Hủy"
+      destroyOnClose
     >
       <Form form={form} layout="vertical">
-        <Form.Item name="title" label="Tiêu đề" rules={[{ required: true, message: 'Nhập tiêu đề' }]}> 
+        <Form.Item name="title" label="Tiêu đề" rules={[{ required: true, message: 'Nhập tiêu đề' }]}>
           <Input />
         </Form.Item>
-        <Form.Item name="content" label="Nội dung"> 
+        <Form.Item name="content" label="Nội dung">
           <Input.TextArea rows={4} />
         </Form.Item>
-        <Form.Item name="status" label="Trạng thái" initialValue={'initial'}>
-          <Select
-            options={[
-              { value: 'initial', label: 'initial' },
-              { value: 'doing', label: 'doing' },
-              { value: 'finish', label: 'finish' },
-              { value: 'pending', label: 'pending' },
-              { value: 'notFinish', label: 'notFinish' },
-            ]}
-          />
+        <Form.Item name="status" label="Trạng thái" initialValue="initial">
+          <Select options={TASK_STATUS_OPTIONS} />
         </Form.Item>
-        <Form.Item name="timeStart" label="Bắt đầu"> 
-          <DatePicker showTime style={{ width: '100%' }} />
+        <Form.Item name="timeStart" label="Bắt đầu">
+          <DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm" />
         </Form.Item>
-        <Form.Item name="timeFinish" label="Kết thúc"> 
-          <DatePicker showTime style={{ width: '100%' }} />
+        <Form.Item name="timeFinish" label="Kết thúc">
+          <DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm" />
         </Form.Item>
         <Form.Item name="listUsers" label="Người tham gia">
           <Select
@@ -90,7 +82,9 @@ export default function TaskForm({ open, loading, initialValues, onCancel, onSub
             placeholder="Chọn người tham gia"
             options={userOptions}
             showSearch
-            filterOption={(input, option) => (option?.label as string).toLowerCase().includes(input.toLowerCase())}
+            filterOption={(input, option) =>
+              (option?.label as string).toLowerCase().includes(input.toLowerCase())
+            }
           />
         </Form.Item>
       </Form>

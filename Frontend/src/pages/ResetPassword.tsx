@@ -1,40 +1,46 @@
-import { Button, Card, Form, Input, Typography, message } from 'antd';
+import { Button, Card, Form, Input, message } from 'antd';
 import { resetPassword } from '../api/user';
-import { useNavigate, Link } from 'react-router-dom';
+import { clearAuth } from '../store/auth';
+import { useNavigate } from 'react-router-dom';
 
 export default function ResetPassword() {
   const navigate = useNavigate();
 
-  const onFinish = async (values: { password: string; confirm: string }) => {
+  const onFinish = async (values: { password: string }) => {
     try {
-      if (values.password !== values.confirm) {
-        message.warning('Mật khẩu nhập lại không khớp');
-        return;
-      }
-      await resetPassword({ password: values.password });
-      message.success('Đổi mật khẩu thành công');
-      navigate('/tasks');
+      await resetPassword(values);
+      message.success('Đổi mật khẩu thành công, vui lòng đăng nhập lại');
+      clearAuth();
+      navigate('/login');
     } catch (err: any) {
-      message.error(err?.response?.data?.message || 'Đổi mật khẩu thất bại');
+      message.error(err?.response?.data?.message || 'Lỗi đổi mật khẩu');
     }
   };
 
   return (
-    <div style={{ display: 'grid', placeItems: 'center', height: '80vh' }}>
-      <Card title="Đặt lại mật khẩu" style={{ width: 420 }}>
+    <div style={{ display: 'grid', placeItems: 'center', minHeight: '70vh' }}>
+      <Card title="Đặt lại mật khẩu" style={{ width: 400 }}>
         <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item label="Mật khẩu mới" name="password" rules={[{ required: true, message: 'Nhập mật khẩu mới' }]}> 
-            <Input.Password placeholder="••••••••" />
+          <Form.Item label="Mật khẩu mới" name="password" rules={[{ required: true, min: 6, message: 'Tối thiểu 6 ký tự' }]}>
+            <Input.Password />
           </Form.Item>
-          <Form.Item label="Nhập lại mật khẩu" name="confirm" rules={[{ required: true, message: 'Nhập lại mật khẩu' }]}> 
-            <Input.Password placeholder="••••••••" />
+          <Form.Item
+            label="Xác nhận mật khẩu"
+            name="confirmPassword"
+            dependencies={['password']}
+            rules={[
+              { required: true, message: 'Xác nhận mật khẩu' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('password') === value) return Promise.resolve();
+                  return Promise.reject(new Error('Mật khẩu không khớp'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Đặt lại mật khẩu
-          </Button>
-          <Typography.Paragraph style={{ marginTop: 12 }}>
-            Quên OTP? <Link to="/forgot">Gửi lại</Link>
-          </Typography.Paragraph>
+          <Button type="primary" htmlType="submit" block>Đặt lại mật khẩu</Button>
         </Form>
       </Card>
     </div>
