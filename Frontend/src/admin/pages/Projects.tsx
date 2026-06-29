@@ -148,7 +148,7 @@ export default function AdminProjects() {
   async function loadTrash() {
     try {
       const res = await fetchAdminProjectsTrash({ page: trashPage, limit });
-      setTrashData(res.data || []); setTrashTotal(res.pagination?.totalItems || 0);
+      setTrashData(res.data || []); setTrashTotal(res.totalProjects ?? res.pagination?.totalItems ?? 0);
     } catch { }
   }
 

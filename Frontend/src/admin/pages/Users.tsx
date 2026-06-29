@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Avatar, Button, Card, Form, Input, Modal, Popconfirm, Select,
   Space, Table, Tabs, Tag, Upload, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, RedoOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, RedoOutlined, EyeOutlined } from '@ant-design/icons';
 import {
   fetchAdminUsers, createAdminUser, editAdminUser, deleteAdminUser,
   changeAdminUserStatus, changeMultiAdminUsers,
@@ -96,6 +96,7 @@ function UserFormModal({
 
 export default function Users() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<any[]>([]);
   const [trashData, setTrashData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -200,7 +201,8 @@ export default function Users() {
     {
       title: 'Hành động', key: 'actions',
       render: (_, r) => (
-        <Space size="small">
+        <Space size="small" wrap>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/admin/users/${r._id}`)}>Chi tiết</Button>
           <Select size="small" style={{ width: 130 }} value={r.status}
             onChange={(v) => changeAdminUserStatus(r._id, v).then(() => { message.success('Đã cập nhật'); load(); })}
             options={STATUS_OPTIONS} />

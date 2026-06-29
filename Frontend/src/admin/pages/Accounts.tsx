@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   Avatar, Button, Card, Form, Input, Modal, Popconfirm, Select,
   Space, Table, Tag, Upload, message,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, UserOutlined, EyeOutlined } from '@ant-design/icons';
 import {
   fetchAccounts, createAccount, editAccount, deleteAccount,
   changeAccountStatus, changeMultiAccounts,
@@ -19,6 +19,7 @@ const ACCOUNT_STATUS_OPTIONS = [
 
 export default function Accounts() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -128,7 +129,8 @@ export default function Accounts() {
     {
       title: 'Hành động', key: 'actions',
       render: (_, r) => (
-        <Space size="small">
+        <Space size="small" wrap>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => navigate(`/admin/accounts/${r._id}`)}>Chi tiết</Button>
           <Select
             size="small" style={{ width: 120 }} value={r.status}
             onChange={(v) => changeAccountStatus(r._id, v).then(load)}

@@ -14,36 +14,44 @@ interface Props {
 }
 
 export default function TaskForm({ open, loading, initialValues, onCancel, onSubmit }: Props) {
-  const [form] = Form.useForm<Partial<Task>>();
+  const [form] = Form.useForm();
   const [userOptions, setUserOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
     if (open) {
       form.setFieldsValue({
-        title: initialValues?.title,
-        content: initialValues?.content,
+        title: initialValues?.title || '',
+        content: initialValues?.content || '',
         status: initialValues?.status || 'initial',
-        timeStart: initialValues?.timeStart ? dayjs(initialValues.timeStart) as any : undefined,
-        timeFinish: initialValues?.timeFinish ? dayjs(initialValues.timeFinish) as any : undefined,
+        timeStart: initialValues?.timeStart ? dayjs(initialValues.timeStart) : undefined,
+        timeFinish: initialValues?.timeFinish ? dayjs(initialValues.timeFinish) : undefined,
         listUsers: (initialValues as any)?.listUsers || [],
-      } as any);
+      });
+
+      // Fetch dropdown users: { data: { users, accounts } }
       fetchUsersDropdowns()
         .then((res) => {
-          const acc = (res?.data?.accounts || []).map((a: any) => ({ label: `${a.fullName} (admin)`, value: a._id }));
-          const users = (res?.data?.users || []).map((u: any) => ({ label: u.fullName, value: u._id }));
-          setUserOptions([...acc, ...users]);
+          const accounts = (res?.data?.accounts || []).map((a: any) => ({
+            label: `${a.fullName} (admin)`,
+            value: a._id,
+          }));
+          const users = (res?.data?.users || []).map((u: any) => ({
+            label: u.fullName,
+            value: u._id,
+          }));
+          setUserOptions([...accounts, ...users]);
         })
         .catch(() => {});
     }
-  }, [open, initialValues, form]);
+  }, [open, initialValues?._id]);  // only re-run when open or task changes
 
   const handleOk = () => {
-    form.validateFields().then((vals) => {
+    form.validateFields().then((vals: any) => {
       const payload: Partial<Task> = {
         ...vals,
-        timeStart: (vals as any).timeStart ? (vals as any).timeStart.toISOString?.() : undefined,
-        timeFinish: (vals as any).timeFinish ? (vals as any).timeFinish.toISOString?.() : undefined,
-        listUsers: (vals as any).listUsers || [],
+        timeStart: vals.timeStart ? vals.timeStart.toISOString() : undefined,
+        timeFinish: vals.timeFinish ? vals.timeFinish.toISOString() : undefined,
+        listUsers: vals.listUsers || [],
       };
       onSubmit(payload);
     }).catch(() => {});
@@ -67,7 +75,7 @@ export default function TaskForm({ open, loading, initialValues, onCancel, onSub
         <Form.Item name="content" label="Nội dung">
           <Input.TextArea rows={4} />
         </Form.Item>
-        <Form.Item name="status" label="Trạng thái" initialValue="initial">
+        <Form.Item name="status" label="Trạng thái">
           <Select options={TASK_STATUS_OPTIONS} />
         </Form.Item>
         <Form.Item name="timeStart" label="Bắt đầu">

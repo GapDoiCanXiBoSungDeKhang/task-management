@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select,
   Space, Table, Tabs, Tag, message, Descriptions, Skeleton,
@@ -16,18 +16,21 @@ import {
 } from '../api/tasks';
 import SubtaskCard from '../../components/SubtaskCard';
 
+// dropdowns data shape: { data: { users: [], projects: [] } }
 function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }: any) {
   const [form] = Form.useForm();
+
   useEffect(() => {
     if (open) {
       if (editing) {
         form.setFieldsValue({
-          title: editing.title, content: editing.content, status: editing.status,
+          title: editing.title,
+          content: editing.content,
+          status: editing.status,
           timeStart: editing.timeStart ? dayjs(editing.timeStart) : undefined,
           timeFinish: editing.timeFinish ? dayjs(editing.timeFinish) : undefined,
           listUsers: editing.listUsers || [],
           projectId: editing.projectId || undefined,
-          taskParentId: editing.taskParentId || undefined,
         });
       } else {
         form.resetFields();
@@ -37,27 +40,33 @@ function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }
   }, [open, editing, form]);
 
   const handleOk = async () => {
-    const vals = await form.validateFields();
-    const payload = {
-      ...vals,
-      timeStart: vals.timeStart?.toISOString() || undefined,
-      timeFinish: vals.timeFinish?.toISOString() || undefined,
-    };
-    onSubmit(payload);
+    try {
+      const vals = await form.validateFields();
+      onSubmit({
+        ...vals,
+        timeStart: vals.timeStart?.toISOString?.() || undefined,
+        timeFinish: vals.timeFinish?.toISOString?.() || undefined,
+      });
+    } catch { }
   };
 
-  const userOptions = [
-    ...(dropdowns?.users || []).map((u: any) => ({ value: u._id, label: u.fullName })),
-  ];
+  const userOptions = (dropdowns?.users || []).map((u: any) => ({ value: u._id, label: u.fullName }));
   const projectOptions = (dropdowns?.projects || []).map((p: any) => ({ value: p._id, label: p.title }));
 
   return (
-    <Modal title={editing ? 'Chỉnh sửa Task' : 'Tạo Task mới'} open={open}
-      onCancel={onCancel} onOk={handleOk} confirmLoading={loading}
-      okText={editing ? 'Lưu' : 'Tạo'} cancelText="Hủy" destroyOnClose width={560}>
+    <Modal
+      title={editing ? 'Chỉnh sửa Task' : 'Tạo Task mới'}
+      open={open} onCancel={onCancel} onOk={handleOk}
+      confirmLoading={loading} okText={editing ? 'Lưu' : 'Tạo'}
+      cancelText="Hủy" destroyOnClose width={560}
+    >
       <Form form={form} layout="vertical">
-        <Form.Item name="title" label="Tiêu đề" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item name="content" label="Nội dung"><Input.TextArea rows={3} /></Form.Item>
+        <Form.Item name="title" label="Tiêu đề" rules={[{ required: true, message: 'Nhập tiêu đề' }]}>
+          <Input />
+        </Form.Item>
+        <Form.Item name="content" label="Nội dung">
+          <Input.TextArea rows={3} />
+        </Form.Item>
         <Form.Item name="status" label="Trạng thái" initialValue="initial">
           <Select options={TASK_STATUS_OPTIONS} />
         </Form.Item>
@@ -71,8 +80,15 @@ function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }
           <DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm" />
         </Form.Item>
         <Form.Item name="listUsers" label="Người thực hiện">
-          <Select mode="multiple" options={userOptions} placeholder="Chọn người thực hiện"
-            showSearch filterOption={(input, opt) => (opt?.label as string).toLowerCase().includes(input.toLowerCase())} />
+          <Select
+            mode="multiple"
+            options={userOptions}
+            placeholder="Chọn người thực hiện"
+            showSearch
+            filterOption={(input, opt) =>
+              (opt?.label as string)?.toLowerCase().includes(input.toLowerCase())
+            }
+          />
         </Form.Item>
       </Form>
     </Modal>
@@ -86,34 +102,48 @@ function TaskDetailModal({ id, open, onClose }: { id: string | null; open: boole
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!id || !open) return;
+    if (!id || !open) { setTask(null); setSubtasks([]); return; }
     setLoading(true);
-    Promise.all([fetchAdminTaskDetail(id), fetchAdminTaskSubtasks(id)])
-      .then(([d, s]) => { setTask(d.data); setSubtasks(s.data || []); })
-      .catch(() => {})
+    Promise.allSettled([fetchAdminTaskDetail(id), fetchAdminTaskSubtasks(id)])
+      .then(([d, s]) => {
+        if (d.status === 'fulfilled') setTask(d.value?.data);
+        if (s.status === 'fulfilled') setSubtasks(s.value?.data || []);
+      })
       .finally(() => setLoading(false));
   }, [id, open]);
 
   return (
-    <Modal title="Chi tiết Task" open={open} onCancel={onClose} footer={null} width={640}>
+    <Modal title="Chi tiết Task" open={open} onCancel={onClose} footer={null} width={640} destroyOnClose>
       {loading ? <Skeleton active /> : task ? (
         <div>
           <Descriptions bordered column={1} size="small" style={{ marginBottom: 16 }}>
             <Descriptions.Item label="Tiêu đề">{task.title}</Descriptions.Item>
             <Descriptions.Item label="Trạng thái">
-              <Tag color={(TASK_STATUS_COLOR as any)[task.status]}>
+              <Tag color={TASK_STATUS_COLOR[task.status as TaskStatus]}>
                 {TASK_STATUS_OPTIONS.find(o => o.value === task.status)?.label || task.status}
               </Tag>
             </Descriptions.Item>
-            {task.content && <Descriptions.Item label="Nội dung"><div style={{ whiteSpace: 'pre-wrap' }}>{task.content}</div></Descriptions.Item>}
-            <Descriptions.Item label="Bắt đầu">{task.timeStart ? dayjs(task.timeStart).format('DD/MM/YYYY HH:mm') : '—'}</Descriptions.Item>
-            <Descriptions.Item label="Kết thúc">{task.timeFinish ? dayjs(task.timeFinish).format('DD/MM/YYYY HH:mm') : '—'}</Descriptions.Item>
+            {task.content && (
+              <Descriptions.Item label="Nội dung">
+                <div style={{ whiteSpace: 'pre-wrap' }}>{task.content}</div>
+              </Descriptions.Item>
+            )}
+            <Descriptions.Item label="Bắt đầu">
+              {task.timeStart ? dayjs(task.timeStart).format('DD/MM/YYYY HH:mm') : '—'}
+            </Descriptions.Item>
+            <Descriptions.Item label="Kết thúc">
+              {task.timeFinish ? dayjs(task.timeFinish).format('DD/MM/YYYY HH:mm') : '—'}
+            </Descriptions.Item>
           </Descriptions>
           {subtasks.length > 0 && (
             <div>
               <div style={{ fontWeight: 600, marginBottom: 8 }}>Subtasks ({subtasks.length}):</div>
               {subtasks.map(s => (
-                <SubtaskCard key={s._id} item={s} onOpenDetail={(sid) => { onClose(); navigate(`/admin/tasks?detail=${sid}`); }} />
+                <SubtaskCard
+                  key={s._id}
+                  item={s}
+                  onOpenDetail={(sid) => { onClose(); navigate(`/admin/tasks?detail=${sid}`); }}
+                />
               ))}
             </div>
           )}
@@ -130,7 +160,7 @@ export default function AdminTasks() {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [trashTotal, setTrashTotal] = useState(0);
-  const [dropdowns, setDropdowns] = useState<any>(null);
+  const [dropdowns, setDropdowns] = useState<{ users: any[]; projects: any[] }>({ users: [], projects: [] });
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [trashSelectedKeys, setTrashSelectedKeys] = useState<React.Key[]>([]);
   const [formOpen, setFormOpen] = useState(false);
@@ -155,21 +185,31 @@ export default function AdminTasks() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetchAdminTasks({ page, limit, keyword: keyword || undefined, status: status || undefined });
-      setData(res.data || []); setTotal(res.totalTasks || 0);
-    } catch (err: any) { message.error(err?.response?.data?.message || 'Lỗi'); }
-    finally { setLoading(false); }
+      const res = await fetchAdminTasks({
+        page, limit,
+        keyword: keyword || undefined,
+        status: status || undefined,
+      });
+      setData(res.data || []);
+      // Backend returns totalTasks at top level AND pagination
+      setTotal(res.totalTasks ?? res.pagination?.totalItems ?? 0);
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Lỗi tải dữ liệu');
+    } finally { setLoading(false); }
   }
 
   async function loadTrash() {
     try {
       const res = await fetchAdminTasksTrash({ page: trashPage, limit });
-      setTrashData(res.data || []); setTrashTotal(res.totalTasks || 0);
+      setTrashData(res.data || []);
+      setTrashTotal(res.totalTasks ?? res.pagination?.totalItems ?? 0);
     } catch { }
   }
 
   useEffect(() => {
-    fetchAdminTaskDropdowns().then(res => setDropdowns(res.data)).catch(() => {});
+    fetchAdminTaskDropdowns()
+      .then(res => setDropdowns(res.data || { users: [], projects: [] }))
+      .catch(() => {});
   }, []);
 
   useEffect(() => { load(); loadTrash(); }, [searchParams.toString()]);
@@ -177,16 +217,25 @@ export default function AdminTasks() {
   const handleSubmit = async (payload: any) => {
     setFormLoading(true);
     try {
-      if (editing?._id) { await editAdminTask(editing._id, payload); message.success('Cập nhật thành công'); }
-      else { await createAdminTask(payload); message.success('Tạo thành công'); }
+      if (editing?._id) {
+        await editAdminTask(editing._id, payload);
+        message.success('Cập nhật thành công');
+      } else {
+        await createAdminTask(payload);
+        message.success('Tạo thành công');
+      }
       setFormOpen(false); load();
-    } catch (err: any) { message.error(err?.response?.data?.message || 'Lỗi'); }
-    finally { setFormLoading(false); }
+    } catch (err: any) {
+      message.error(err?.response?.data?.message || 'Lỗi');
+    } finally { setFormLoading(false); }
   };
 
   const handleDelete = async (id: string) => {
-    try { await deleteAdminTask(id); message.success('Xóa thành công'); load(); loadTrash(); }
-    catch (err: any) { message.error(err?.response?.data?.message || 'Lỗi'); }
+    try {
+      await deleteAdminTask(id);
+      message.success('Xóa thành công');
+      load(); loadTrash();
+    } catch (err: any) { message.error(err?.response?.data?.message || 'Lỗi'); }
   };
 
   const handleBulk = async (key: string, value: any) => {
@@ -206,24 +255,44 @@ export default function AdminTasks() {
   };
 
   const columns: ColumnsType<any> = [
-    { title: 'Tiêu đề', dataIndex: 'title', ellipsis: true, render: (v, r) => (
-      <a onClick={() => setDetailId(r._id)} style={{ fontWeight: 500 }}>{v}</a>
-    )},
-    { title: 'Trạng thái', dataIndex: 'status', render: (v: TaskStatus) => (
-      <Tag color={(TASK_STATUS_COLOR as any)[v]}>{TASK_STATUS_OPTIONS.find(o => o.value === v)?.label || v}</Tag>
-    )},
-    { title: 'Tạo bởi', dataIndex: 'createdBy', render: (v) => v || '—' },
-    { title: 'Kết thúc', dataIndex: 'timeFinish', render: (v) => v ? dayjs(v).format('DD/MM/YYYY') : '—' },
+    {
+      title: 'Tiêu đề', dataIndex: 'title', ellipsis: true,
+      render: (v, r) => (
+        <a onClick={() => setDetailId(r._id)} style={{ fontWeight: 500 }}>{v}</a>
+      ),
+    },
+    {
+      title: 'Trạng thái', dataIndex: 'status',
+      render: (v: TaskStatus) => (
+        <Tag color={TASK_STATUS_COLOR[v]}>{TASK_STATUS_OPTIONS.find(o => o.value === v)?.label || v}</Tag>
+      ),
+    },
+    {
+      title: 'Tạo bởi', dataIndex: 'createdBy',
+      render: (v) => typeof v === 'string' ? v : (v?.fullName || '—'),
+    },
+    {
+      title: 'Kết thúc', dataIndex: 'timeFinish',
+      render: (v) => {
+        if (!v) return '—';
+        const diff = dayjs(v).diff(dayjs(), 'day');
+        if (diff < 0) return <Tag color="red">{dayjs(v).format('DD/MM/YYYY')} (Quá hạn)</Tag>;
+        if (diff <= 3) return <Tag color="orange">{dayjs(v).format('DD/MM/YYYY')}</Tag>;
+        return dayjs(v).format('DD/MM/YYYY');
+      },
+    },
     {
       title: 'Hành động', key: 'actions',
       render: (_, r) => (
         <Space size="small" wrap>
-          <Select size="small" style={{ width: 130 }} value={r.status}
+          <Select
+            size="small" style={{ width: 130 }} value={r.status}
             onChange={(v) => changeAdminTaskStatus(r._id, v).then(() => { message.success('Đã cập nhật'); load(); })}
-            options={TASK_STATUS_OPTIONS} />
+            options={TASK_STATUS_OPTIONS}
+          />
           <Button size="small" icon={<EyeOutlined />} onClick={() => setDetailId(r._id)}>Chi tiết</Button>
           <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }}>Sửa</Button>
-          <Popconfirm title="Xóa task?" onConfirm={() => handleDelete(r._id)} okText="Xóa" cancelText="Hủy">
+          <Popconfirm title="Xóa task này?" onConfirm={() => handleDelete(r._id)} okText="Xóa" cancelText="Hủy">
             <Button size="small" danger icon={<DeleteOutlined />}>Xóa</Button>
           </Popconfirm>
         </Space>
@@ -233,18 +302,27 @@ export default function AdminTasks() {
 
   const trashColumns: ColumnsType<any> = [
     { title: 'Tiêu đề', dataIndex: 'title', ellipsis: true },
-    { title: 'Trạng thái', dataIndex: 'status', render: (v: TaskStatus) => (
-      <Tag color={(TASK_STATUS_COLOR as any)[v]}>{TASK_STATUS_OPTIONS.find(o => o.value === v)?.label || v}</Tag>
-    )},
+    {
+      title: 'Trạng thái', dataIndex: 'status',
+      render: (v: TaskStatus) => (
+        <Tag color={TASK_STATUS_COLOR[v]}>{TASK_STATUS_OPTIONS.find(o => o.value === v)?.label || v}</Tag>
+      ),
+    },
     {
       title: 'Hành động', key: 'actions',
       render: (_, r) => (
         <Space size="small">
-          <Button size="small" icon={<RedoOutlined />}
-            onClick={() => restoreAdminTask(r._id).then(() => { message.success('Khôi phục thành công'); load(); loadTrash(); })}>
+          <Button
+            size="small" icon={<RedoOutlined />}
+            onClick={() => restoreAdminTask(r._id).then(() => { message.success('Khôi phục thành công'); load(); loadTrash(); })}
+          >
             Khôi phục
           </Button>
-          <Popconfirm title="Xóa vĩnh viễn?" onConfirm={() => deleteAdminTaskPermanently(r._id).then(() => { message.success('Đã xóa vĩnh viễn'); loadTrash(); })} okText="Xóa" cancelText="Hủy">
+          <Popconfirm
+            title="Xóa vĩnh viễn task này?"
+            onConfirm={() => deleteAdminTaskPermanently(r._id).then(() => { message.success('Đã xóa vĩnh viễn'); loadTrash(); })}
+            okText="Xóa" cancelText="Hủy"
+          >
             <Button size="small" danger>Xóa vĩnh viễn</Button>
           </Popconfirm>
         </Space>
@@ -252,64 +330,105 @@ export default function AdminTasks() {
     },
   ];
 
+  const paginationChange = (p: number, ps: number) => {
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.set('page', String(p)); sp.set('limit', String(ps));
+    setSearchParams(sp);
+  };
+
   return (
     <Card
       title="Quản lý Tasks"
-      extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>Tạo Task</Button>}
+      extra={
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
+          Tạo Task
+        </Button>
+      }
     >
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={[
-        {
-          key: 'active', label: 'Danh sách',
-          children: (
-            <>
-              <Space wrap style={{ marginBottom: 16 }}>
-                <Input.Search placeholder="Tìm task" allowClear value={keyword}
-                  onChange={(e) => setParam('keyword', e.target.value)} style={{ width: 260 }} />
-                <Select placeholder="Trạng thái" allowClear style={{ width: 170 }}
-                  value={status || undefined}
-                  onChange={(v) => setParam('status', v || '')} options={TASK_STATUS_OPTIONS} />
-              </Space>
-              {selectedRowKeys.length > 0 && (
-                <Space style={{ marginBottom: 12 }}>
-                  <span style={{ color: '#666' }}>Đã chọn {selectedRowKeys.length}:</span>
-                  <Select placeholder="Đổi trạng thái" style={{ width: 180 }}
-                    onChange={(v) => handleBulk('status', v)} options={TASK_STATUS_OPTIONS} />
-                  <Popconfirm title="Xóa các task?" onConfirm={() => handleBulk('deleted', true)} okText="Xóa" cancelText="Hủy">
-                    <Button danger icon={<DeleteOutlined />}>Xóa hàng loạt</Button>
-                  </Popconfirm>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        items={[
+          {
+            key: 'active',
+            label: 'Danh sách',
+            children: (
+              <>
+                <Space wrap style={{ marginBottom: 16 }}>
+                  <Input.Search
+                    placeholder="Tìm task" allowClear value={keyword}
+                    onChange={(e) => setParam('keyword', e.target.value)}
+                    style={{ width: 260 }}
+                  />
+                  <Select
+                    placeholder="Trạng thái" allowClear style={{ width: 170 }}
+                    value={status || undefined}
+                    onChange={(v) => setParam('status', v || '')}
+                    options={TASK_STATUS_OPTIONS}
+                  />
                 </Space>
-              )}
-              <Table rowKey="_id" loading={loading} dataSource={data} columns={columns}
-                rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
-                pagination={{ current: page, pageSize: limit, total, showSizeChanger: true, showTotal: (t) => `Tổng ${t}`,
-                  onChange: (p, ps) => { const sp = new URLSearchParams(searchParams.toString()); sp.set('page', String(p)); sp.set('limit', String(ps)); setSearchParams(sp); } }} />
-            </>
-          ),
-        },
-        {
-          key: 'trash', label: `Thùng rác (${trashTotal})`,
-          children: (
-            <>
-              {trashSelectedKeys.length > 0 && (
-                <Space style={{ marginBottom: 12 }}>
-                  <span style={{ color: '#666' }}>Đã chọn {trashSelectedKeys.length}:</span>
-                  <Button icon={<RedoOutlined />} onClick={() => handleBulkTrash('restore', false)}>Khôi phục hàng loạt</Button>
-                  <Popconfirm title="Xóa vĩnh viễn?" onConfirm={() => handleBulkTrash('deleted-permanently', true)} okText="Xóa" cancelText="Hủy">
-                    <Button danger>Xóa vĩnh viễn hàng loạt</Button>
-                  </Popconfirm>
-                </Space>
-              )}
-              <Table rowKey="_id" dataSource={trashData} columns={trashColumns}
-                rowSelection={{ selectedRowKeys: trashSelectedKeys, onChange: setTrashSelectedKeys }}
-                pagination={{ current: trashPage, pageSize: limit, total: trashTotal, showTotal: (t) => `Tổng ${t}`,
-                  onChange: (p) => { const sp = new URLSearchParams(searchParams.toString()); sp.set('trash_page', String(p)); setSearchParams(sp); } }} />
-            </>
-          ),
-        },
-      ]} />
+                {selectedRowKeys.length > 0 && (
+                  <Space style={{ marginBottom: 12 }}>
+                    <span style={{ color: '#666' }}>Đã chọn {selectedRowKeys.length}:</span>
+                    <Select
+                      placeholder="Đổi trạng thái" style={{ width: 180 }}
+                      onChange={(v) => handleBulk('status', v)} options={TASK_STATUS_OPTIONS}
+                    />
+                    <Popconfirm title="Xóa các task đã chọn?" onConfirm={() => handleBulk('deleted', true)} okText="Xóa" cancelText="Hủy">
+                      <Button danger icon={<DeleteOutlined />}>Xóa hàng loạt</Button>
+                    </Popconfirm>
+                  </Space>
+                )}
+                <Table
+                  rowKey="_id" loading={loading} dataSource={data} columns={columns}
+                  rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
+                  scroll={{ x: 700 }}
+                  pagination={{
+                    current: page, pageSize: limit, total,
+                    showSizeChanger: true, showTotal: (t) => `Tổng ${t} task`,
+                    onChange: paginationChange,
+                  }}
+                />
+              </>
+            ),
+          },
+          {
+            key: 'trash',
+            label: `Thùng rác (${trashTotal})`,
+            children: (
+              <>
+                {trashSelectedKeys.length > 0 && (
+                  <Space style={{ marginBottom: 12 }}>
+                    <span style={{ color: '#666' }}>Đã chọn {trashSelectedKeys.length}:</span>
+                    <Button icon={<RedoOutlined />} onClick={() => handleBulkTrash('restore', false)}>
+                      Khôi phục hàng loạt
+                    </Button>
+                    <Popconfirm title="Xóa vĩnh viễn?" onConfirm={() => handleBulkTrash('deleted-permanently', true)} okText="Xóa" cancelText="Hủy">
+                      <Button danger>Xóa vĩnh viễn hàng loạt</Button>
+                    </Popconfirm>
+                  </Space>
+                )}
+                <Table
+                  rowKey="_id" dataSource={trashData} columns={trashColumns}
+                  rowSelection={{ selectedRowKeys: trashSelectedKeys, onChange: setTrashSelectedKeys }}
+                  pagination={{
+                    current: trashPage, pageSize: limit, total: trashTotal,
+                    showTotal: (t) => `Tổng ${t}`,
+                    onChange: (p) => { const sp = new URLSearchParams(searchParams.toString()); sp.set('trash_page', String(p)); setSearchParams(sp); },
+                  }}
+                />
+              </>
+            ),
+          },
+        ]}
+      />
 
-      <TaskFormModal open={formOpen} loading={formLoading} editing={editing}
-        dropdowns={dropdowns} onCancel={() => setFormOpen(false)} onSubmit={handleSubmit} />
+      <TaskFormModal
+        open={formOpen} loading={formLoading} editing={editing}
+        dropdowns={dropdowns}
+        onCancel={() => setFormOpen(false)}
+        onSubmit={handleSubmit}
+      />
       <TaskDetailModal id={detailId} open={!!detailId} onClose={() => setDetailId(null)} />
     </Card>
   );

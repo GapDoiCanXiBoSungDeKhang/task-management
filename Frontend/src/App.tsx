@@ -28,6 +28,8 @@ import AdminUsers from './admin/pages/Users';
 import AdminTasks from './admin/pages/Tasks';
 import AdminProjects from './admin/pages/Projects';
 import AdminProfile from './admin/pages/Profile';
+import AccountDetail from './admin/pages/AccountDetail';
+import UserDetail from './admin/pages/UserDetail';
 
 const { Header, Content } = Layout;
 
@@ -111,8 +113,10 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="accounts" element={<Accounts />} />
+          <Route path="accounts/:id" element={<AccountDetail />} />
           <Route path="roles" element={<Roles />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="users/:id" element={<UserDetail />} />
           <Route path="tasks" element={<AdminTasks />} />
           <Route path="projects" element={<AdminProjects />} />
           <Route path="profile" element={<AdminProfile />} />
