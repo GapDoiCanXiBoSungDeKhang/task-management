@@ -141,6 +141,14 @@ export const controller = {
             user: users,
           },
         });
+      } else {
+        return res.status(200).json({ 
+          success: true, 
+          data: { 
+            admin: [], 
+            user: [] 
+          }  
+        });
       }
     } catch (err) {
       res.status(500).json({
