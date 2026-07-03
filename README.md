@@ -1,19 +1,30 @@
 # Task Management System
 
-Đây là dự án học tập cá nhân tập trung vào **Backend** — một REST API quản lý công việc (task) và dự án (project), xây dựng bằng Node.js/Express/TypeScript. Phần Frontend (React + Ant Design) được viết nhanh bằng vibe coding để có giao diện thử nghiệm API, không phải phần trọng tâm của dự án.
+Đây là dự án học tập cá nhân tập trung vào **Backend** — một REST API quản lý công việc (task) và dự án (project), xây dựng bằng Node.js/Express/TypeScript. Phần Frontend (React + Ant Design) được viết nhanh bằng vibe coding(claude.ai, windsuft, cursor) để có giao diện thử nghiệm API, không phải phần trọng tâm của dự án.
 
 Mục tiêu khi làm dự án này là thực hành thiết kế API có đầy đủ các luồng thực tế: xác thực JWT với refresh token, phân quyền theo vai trò (RBAC), quản lý task hỗ trợ cấu trúc cha–con (subtask đệ quy), và tác vụ nền tự động (cron job) như dọn dữ liệu cũ và xuất báo cáo Excel định kỳ.
 
 ---
 
-## 📋 Table of Contents
+## Quá trình xây dựng
 
-- [Backend làm được gì](#-backend-làm-được-gì)
-- [Tech Stack](#-tech-stack)
-- [System Architecture](#-system-architecture)
-- [Database Schema](#-database-schema)
-- [Backend Project Structure](#-backend-project-structure)
-- [Application Workflows](#-application-workflows)
+Phần Backend được làm trong quá trình tự học theo hướng backend, có theo dõi và tham khảo các dự án mã nguồn mở trên GitHub cũng như các bài chia sẻ trên mạng xã hội. Trọng tâm học chủ yếu xoay quanh cách thiết kế REST API và test API bằng Postman, song song với việc dựng luồng nghiệp vụ cơ bản (auth, RBAC, CRUD, upload, cron job). Một số thuật toán và hàm hỗ trợ (dựng cây subtask đệ quy, cơ chế hàng đợi refresh token phía Frontend, cron job xuất báo cáo Excel) có dùng ChatGPT để hỗ trợ viết code mẫu và debug lỗi; Gemini được dùng để tìm hiểu thêm về nghiệp vụ, chủ yếu là các luồng quản trị (admin) cơ bản như phân quyền, quản lý task/dự án.
+
+Dự án này có điểm còn hạn chế là cách liên kết dữ liệu giữa các collection còn đơn giản, chưa dùng `$lookup`/aggregate để gom dữ liệu liên quan trong một lần query. Một vài hàm vì vậy phải lặp qua từng phần tử để tìm document từ collection khác rồi mới trả đủ dữ liệu ra API, dẫn tới N+1 query:
+
+- `api/v1/admin/services/setNameProgress.ts` — hàm `makeNameUserInfo()` dùng ở dashboard: lặp qua từng phần tử trong `progress`, mỗi phần tử gọi riêng `Account.findOne()` rồi `User.findOne()` để lấy tên hiển thị.
+- `api/v1/client/controllers/projects.controller.ts` — lặp qua từng project trong danh sách rồi gọi riêng `Account.findOne()` để lấy tên người tạo dự án.
+
+---
+
+## Table of Contents
+
+- [Backend làm được gì](#backend-làm-được-gì)
+- [Tech Stack](#tech-stack)
+- [System Architecture](#system-architecture)
+- [Database Schema](#database-schema)
+- [Backend Project Structure](#backend-project-structure)
+- [Application Workflows](#application-workflows)
   - [Authentication Flow (JWT + Refresh Token)](#1-authentication-flow-jwt--refresh-token)
   - [Middleware Pipeline — Mỗi request đi qua những gì](#2-middleware-pipeline--mỗi-request-đi-qua-những-gì)
   - [Task Management Flow (kèm Subtask đệ quy)](#3-task-management-flow-kèm-subtask-đệ-quy)
@@ -23,14 +34,14 @@ Mục tiêu khi làm dự án này là thực hành thiết kế API có đầy 
   - [Dashboard & Thống kê tiến độ](#7-dashboard--thống-kê-tiến-độ)
   - [Cron Job — Tác vụ nền tự động](#8-cron-job--tác-vụ-nền-tự-động)
   - [Upload Avatar lên Cloudinary](#9-upload-avatar-lên-cloudinary)
-- [API Routes Reference](#-api-routes-reference)
-- [Environment Variables](#-environment-variables)
-- [Getting Started](#-getting-started)
-- [Một số cách xử lý đáng chú ý](#-một-số-cách-xử-lý-đáng-chú-ý)
+- [API Routes Reference](#api-routes-reference)
+- [Environment Variables](#environment-variables)
+- [Getting Started](#getting-started)
+- [Một số cách xử lý đáng chú ý](#một-số-cách-xử-lý-đáng-chú-ý)
 
 ---
 
-## 🔍 Backend làm được gì
+## Backend làm được gì
 
 API được chia thành hai nhóm endpoint với prefix riêng biệt:
 
@@ -62,7 +73,7 @@ API được chia thành hai nhóm endpoint với prefix riêng biệt:
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Backend (trọng tâm)
 
@@ -86,7 +97,7 @@ React 18 + TypeScript, Vite, Ant Design v5, React Router DOM v6, Axios, Recharts
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -106,82 +117,87 @@ React 18 + TypeScript, Vite, Ant Design v5, React Router DOM v6, Axios, Recharts
 │  │  /projects (JWT guard)   │  │  /projects                   │ │
 │  │  /profile  (JWT guard)   │  │  /accounts                   │ │
 │  └──────────┬───────────────┘  │  /roles                      │ │
-│             │                  │  /users                       │ │
-│             │                  │  /dashboard                   │ │
-│             │                  │  /profile                     │ │
+│             │                  │  /users                      │ │
+│             │                  │  /dashboard                  │ │
+│             │                  │  /profile                    │ │
 │             │                  └──────────────┬───────────────┘ │
 │             │                                 │                 │
 │  ┌──────────▼─────────────────────────────────▼──────────────┐  │
-│  │                 Auth.requireAuth Middleware                │  │
+│  │                 Auth.requireAuth Middleware               │  │
 │  │                                                           │  │
 │  │  Client: jwt.verify(token, SECRET_KEY)                    │  │
-│  │          → User.findOne({ _id, status:"active", deleted:false })│  │
+│  │          → User.findOne({                                 │  │
+│  │              _id, status:"active",                        │  │
+│  │              deleted:false })                             │  │
 │  │          → inject req.user                                │  │
 │  │                                                           │  │
 │  │  Admin:  jwt.verify(token, SECRET_KEY)                    │  │
-│  │          → Account.findOne({ _id, status:"active", deleted:false })│  │
+│  │          → Account.findOne({                              │  │
+│  │               _id, status:"active",                       │  │
+│  │               deleted:false                               │  │
+│  │            })                                             │  │
 │  │          → Role.findOne({ _id: account.role_id })         │  │
 │  │          → inject req.account + req.role                  │  │
-│  └──────────────────────────┬──────────────────────────────┘  │
-│                             │                                  │
-│  ┌──────────────────────────▼──────────────────────────────┐  │
-│  │                    Controller Layer                      │  │
-│  │                                                          │  │
-│  │  Admin controller: kiểm tra từng action riêng            │  │
-│  │  if (!req.role.permissions.includes("tasks_create"))      │  │
-│  │    → 403 Forbidden                                        │  │
-│  │                                                          │  │
-│  │  Xử lý filter/search/sort/pagination từ query params     │  │
-│  │  Gọi Helper/Service để tính toán phức tạp                │  │
-│  └──────────────────────────┬──────────────────────────────┘  │
-│                             │                                  │
-│  ┌──────────────────────────▼──────────────────────────────┐  │
-│  │               Helper / Service Layer                    │  │
-│  │  pagination.ts        — tính skip/limit/totalPage        │  │
-│  │  subTasks.ts          — dựng cây task đệ quy             │  │
-│  │  getProgress.ts       — tính tiến độ từng user           │  │
-│  │  getProgressProjects  — tính tiến độ từng dự án          │  │
-│  │  getChartTasks/Projects — data cho biểu đồ               │  │
-│  │  getDeadline.ts       — task/project sắp hết hạn         │  │
-│  │  systemProgress.ts    — đếm tổng theo trạng thái         │  │
-│  │  setNameProgress.ts   — thay ID bằng tên hiển thị        │  │
-│  │  sendMail.ts          — wrapper Nodemailer               │  │
-│  │  isPassword.ts        — validate độ mạnh mật khẩu        │  │
-│  └──────────────────────────┬──────────────────────────────┘  │
-│                             │                                  │
-│  ┌──────────────────────────▼──────────────────────────────┐  │
-│  │                   Model Layer (Mongoose)                 │  │
-│  │  Account | User | Role | Project | Task | ForgotPassword │  │
-│  └──────────────────────────┬──────────────────────────────┘  │
-│                             │                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │            Cron Jobs (khởi động cùng server)             │  │
-│  │  cleanUpdatedByJob  — 0 2 * * *  (hàng ngày 2h sáng)     │  │
-│  │  reportDataTasks    — 0 8 * * MON (thứ 2, 8h sáng)        │  │
-│  │  reportDataProject  — 0 8 * * MON (thứ 2, 8h sáng)        │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│  └──────────────────────────┬────────────────────────────────┘  │
+│                             │                                   │
+│  ┌──────────────────────────▼───────────────────────────────┐   │
+│  │                    Controller Layer                      │   │
+│  │                                                          │   │
+│  │  Admin controller: kiểm tra từng action riêng            │   │
+│  │  if (!req.role.permissions.includes("tasks_create"))     │   │
+│  │    → 403 Forbidden                                       │   │
+│  │                                                          │   │
+│  │  Xử lý filter/search/sort/pagination từ query params     │   │
+│  │  Gọi Helper/Service để tính toán phức tạp                │   │
+│  └──────────────────────────┬───────────────────────────────┘   │
+│                             │                                   │
+│  ┌──────────────────────────▼───────────────────────────────┐   │
+│  │               Helper / Service Layer                     │   │
+│  │  pagination.ts        — tính skip/limit/totalPage        │   │
+│  │  subTasks.ts          — dựng cây task đệ quy             │   │
+│  │  getProgress.ts       — tính tiến độ từng user           │   │
+│  │  getProgressProjects  — tính tiến độ từng dự án          │   │
+│  │  getChartTasks/Projects — data cho biểu đồ               │   │
+│  │  getDeadline.ts       — task/project sắp hết hạn         │   │
+│  │  systemProgress.ts    — đếm tổng theo trạng thái         │   │
+│  │  setNameProgress.ts   — thay ID bằng tên hiển thị        │   │
+│  │  sendMail.ts          — wrapper Nodemailer               │   │
+│  │  isPassword.ts        — validate độ mạnh mật khẩu        │   │
+│  └──────────────────────────┬───────────────────────────────┘   │
+│                             │                                   │
+│  ┌──────────────────────────▼───────────────────────────────┐   │
+│  │                   Model Layer (Mongoose)                 │   │
+│  │  Account | User | Role | Project | Task | ForgotPassword │   │
+│  └──────────────────────────┬───────────────────────────────┘   │
+│                             │                                   │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │            Cron Jobs (khởi động cùng server)             │   │
+│  │  cleanUpdatedByJob  — 0 2 * * *  (hàng ngày 2h sáng)     │   │
+│  │  reportDataTasks    — 0 8 * * MON (thứ 2, 8h sáng)       │   │
+│  │  reportDataProject  — 0 8 * * MON (thứ 2, 8h sáng)       │   │
+│  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────┬───────────────────────────────────┘
                               │
               ┌───────────────▼─────────────────┐
-              │         MongoDB Atlas            │
-              │                                  │
-              │  accounts    — tài khoản admin   │
-              │  users       — người dùng        │
-              │  roles       — nhóm quyền        │
-              │  projects    — dự án             │
-              │  tasks       — công việc         │
-              │  forgot-passwords (TTL 120s)     │
+              │         MongoDB Atlas           │
+              │                                 │
+              │  accounts    — tài khoản admin  │
+              │  users       — người dùng       │
+              │  roles       — nhóm quyền       │
+              │  projects    — dự án            │
+              │  tasks       — công việc        │
+              │  forgot-passwords (TTL 120s)    │
               └───────────────┬─────────────────┘
                               │
               ┌───────────────▼─────────────────┐
-              │            Cloudinary            │
-              │  (avatar upload qua stream)      │
+              │            Cloudinary           │
+              │  (avatar upload qua stream)     │
               └─────────────────────────────────┘
 ```
 
 ---
 
-## 🗄️ Database Schema
+## Database Schema
 
 ### `accounts` — Tài khoản Admin
 
@@ -310,7 +326,7 @@ React 18 + TypeScript, Vite, Ant Design v5, React Router DOM v6, Axios, Recharts
 
 ---
 
-## 📁 Backend Project Structure
+## Backend Project Structure
 
 ```
 Backend/
@@ -422,7 +438,7 @@ Backend/
 
 ---
 
-## 🔄 Application Workflows
+## Application Workflows
 
 ### 1. Authentication Flow (JWT + Refresh Token)
 
@@ -851,7 +867,7 @@ controller.editProfile:
 
 ---
 
-## 🗺️ API Routes Reference
+## API Routes Reference
 
 ### Client API (`/api/v1/...`)
 
@@ -931,7 +947,7 @@ controller.editProfile:
 
 ---
 
-## 🔐 Environment Variables
+## Environment Variables
 
 ```env
 # Server
@@ -957,11 +973,11 @@ API_SECRET=your_api_secret
 CORS=http://localhost:5173,https://your-frontend.vercel.app
 ```
 
-> ⚠️ File `.env` đã có trong `.gitignore`. Không commit lên repository.
+> File `.env` đã có trong `.gitignore`. Không commit lên repository.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Yêu cầu
 
@@ -1021,7 +1037,7 @@ Chưa có flow đăng ký admin qua API. Cần insert thủ công vào MongoDB:
 
 ---
 
-## 🧩 Một số cách xử lý đáng chú ý
+## Một số cách xử lý đáng chú ý
 
 ### Subtask bằng tự tham chiếu + đệ quy không giới hạn cấp
 Task tự tham chiếu chính nó qua `taskParentId`. Không dùng mảng children trong document (denormalized), thay vào đó query theo `taskParentId` khi cần. Helper `getSubTask` đệ quy cho đến khi một cấp không còn task con nào — không giới hạn số cấp lồng. Nhược điểm là mỗi cấp phát sinh một lần query DB, nếu cây sâu nhiều cấp và nhiều node thì tốn nhiều round-trip. Với quy mô học tập thì chấp nhận được.
@@ -1043,6 +1059,6 @@ Admin (`Account`) và client (`User`) đều dùng cùng `SECRET_KEY` để ký 
 
 ---
 
-## 👤 Author
+## Author
 
 Dự án cá nhân, tập trung thực hành backend: thiết kế API REST, xác thực JWT, phân quyền RBAC, tác vụ nền với cron job, và các pattern phổ biến trong MongoDB như soft delete và audit trail.
