@@ -10,7 +10,9 @@ interface MailOptions {
 
 const sendMail = ({ from, to, subject, text, html }: MailOptions) => {
   const smtpTransport = nodemailer.createTransport({
-    service: 'Gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // true bắt buộc cho port 465
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASSWORD,
