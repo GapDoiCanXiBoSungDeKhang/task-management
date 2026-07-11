@@ -8,7 +8,7 @@ Mục tiêu khi làm dự án này là thực hành thiết kế API có đầy 
 
 ## Quá trình xây dựng
 
-Phần Backend được làm trong quá trình tự học theo hướng backend, có theo dõi và tham khảo các dự án mã nguồn mở trên GitHub cũng như các bài chia sẻ trên mạng xã hội. Trọng tâm học chủ yếu xoay quanh cách thiết kế REST API và test API bằng Postman, song song với việc dựng luồng nghiệp vụ cơ bản (auth, RBAC, CRUD, upload, cron job). Một số thuật toán và hàm hỗ trợ (dựng cây subtask đệ quy, cơ chế hàng đợi refresh token phía Frontend, cron job xuất báo cáo Excel) có dùng ChatGPT để hỗ trợ viết code mẫu và debug lỗi; Gemini được dùng để tìm hiểu thêm về nghiệp vụ, chủ yếu là các luồng quản trị (admin) cơ bản như phân quyền, quản lý task/dự án.
+Phần Backend được làm trong quá trình tự học theo hướng backend, có theo dõi và tham khảo các dự án mã nguồn mở trên GitHub cũng như các bài chia sẻ trên mạng xã hội. Trọng tâm học chủ yếu xoay quanh cách thiết kế REST API và test API bằng Postman, song song với việc dựng luồng nghiệp vụ cơ bản (auth, RBAC, CRUD, upload, cron job). Một số thuật toán và hàm hỗ trợ (dựng cây subtask đệ quy, cơ chế hàng đợi refresh token phía Frontend, cron job xuất báo cáo Excel) có dùng ChatGPT, Gemini để hỗ trợ viết code mẫu và debug lỗi; Gemini được dùng để tìm hiểu thêm về nghiệp vụ, chủ yếu là các luồng quản trị (admin) cơ bản như phân quyền, quản lý task/dự án.
 
 ---
 
@@ -19,6 +19,7 @@ Phần Backend được làm trong quá trình tự học theo hướng backend,
 - [System Architecture](#system-architecture)
 - [Database Schema](#database-schema)
 - [Backend Project Structure](#backend-project-structure)
+  - [Frontend Project Structure](#frontend-project-structure)
 - [Application Workflows](#application-workflows)
   - [Authentication Flow (JWT + Refresh Token)](#1-authentication-flow-jwt--refresh-token)
   - [Middleware Pipeline — Mỗi request đi qua những gì](#2-middleware-pipeline--mỗi-request-đi-qua-những-gì)
@@ -94,94 +95,102 @@ React 18 + TypeScript, Vite, Ant Design v5, React Router DOM v6, Axios, Recharts
 ## System Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│         FRONTEND (React — vibe coding)       │
-│   Gọi API qua Axios với Bearer Token         │
-└──────────────────────┬───────────────────────┘
+┌─────────────────────────────────────────────┐
+│         FRONTEND (React — vibe coding)      │
+│   Gọi API qua Axios với Bearer Token        │
+└──────────────────────┬──────────────────────┘
                        │ HTTP Request + Authorization: Bearer {token}
-                       ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                  EXPRESS BACKEND (TypeScript)                            │
-│                                                                          │
-│  Hai nhóm route tách biệt:                                               │
-│  ┌──────────────────────────┐  ┌───────────────────────────────────────┐ │
-│  │   Client API /api/v1/    │  │  Admin API /admin/api/v1/             │ │
-│  │  /user  (auth, no guard) │  │  /auth    (no guard)                  │ │
-│  │  /tasks    (JWT guard)   │  │  /tasks   (JWT + RBAC guard)          │ │
-│  │  /projects (JWT guard)   │  │  /projects                            │ │
-│  │  /profile  (JWT guard)   │  │  /accounts                            │ │
-│  └──────────┬───────────────┘  │  /roles                               │ │
-│             │                  │  /users                               │ │
-│             │                  │  /dashboard                           │ │
-│             │                  │  /profile                             │ │
-│             │                  └──────────────┬────────────────────────┘ │
-│             │                                 │                          │
-│  ┌──────────▼─────────────────────────────────▼───────────────────────┐  │
-│  │                 Auth.requireAuth Middleware                        │  │
-│  │                                                                    │  │
-│  │  Client: jwt.verify(token, SECRET_KEY)                             │  │
-│  │          → User.findOne({ _id, status:"active", deleted:false })   │  │
-│  │          → inject req.user                                         │  │
-│  │                                                                    │  │
-│  │  Admin:  jwt.verify(token, SECRET_KEY)                             │  │
-│  │          → Account.findOne({ _id, status:"active", deleted:false })│  │
-│  │          → Role.findOne({ _id: account.role_id })                  │  │
-│  │          → inject req.account + req.role                           │  │
-│  └──────────────────────────┬─────────────────────────────────────────┘  │
-│                             │                                            │
-│  ┌──────────────────────────▼─────────────────────────────────────────┐  │
-│  │                    Controller Layer                                │  │
-│  │                                                                    │  │
-│  │  Admin controller: kiểm tra từng action riêng                      │  │
-│  │  if (!req.role.permissions.includes("tasks_create"))               │  │
-│  │    → 403 Forbidden                                                 │  │
-│  │                                                                    │  │
-│  │  Xử lý filter/search/sort/pagination từ query params               │  │
-│  │  Gọi Helper/Service để tính toán phức tạp                          │  │
-│  └──────────────────────────┬─────────────────────────────────────────┘  │
-│                             │                                            │
-│  ┌──────────────────────────▼─────────────────────────────────────────┐  │
-│  │               Helper / Service Layer                               │  │
-│  │  pagination.ts        — tính skip/limit/totalPage                  │  │
-│  │  subTasks.ts          — dựng cây task đệ quy                       │  │
-│  │  getProgress.ts       — tính tiến độ từng user                     │  │
-│  │  getProgressProjects  — tính tiến độ từng dự án                    │  │
-│  │  getChartTasks/Projects — data cho biểu đồ                         │  │
-│  │  getDeadline.ts       — task/project sắp hết hạn                   │  │
-│  │  systemProgress.ts    — đếm tổng theo trạng thái                   │  │
-│  │  setNameProgress.ts   — thay ID bằng tên hiển thị                  │  │
-│  │  sendMail.ts          — wrapper Nodemailer                         │  │
-│  │  isPassword.ts        — validate độ mạnh mật khẩu                  │  │
-│  └──────────────────────────┬─────────────────────────────────────────┘  │
-│                             │                                            │
-│  ┌──────────────────────────▼─────────────────────────────────────────┐  │
-│  │                   Model Layer (Mongoose)                           │  │
-│  │  Account | User | Role | Project | Task | ForgotPassword           │  │
-│  └──────────────────────────┬─────────────────────────────────────────┘  │
-│                             │                                            │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │            Cron Jobs (khởi động cùng server)                       │  │
-│  │  cleanUpdatedByJob  — 0 2 * * *  (hàng ngày 2h sáng)               │  │
-│  │  reportDataTasks    — 0 8 * * MON (thứ 2, 8h sáng)                 │  │
-│  │  reportDataProject  — 0 8 * * MON (thứ 2, 8h sáng)                 │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────┬────────────────────────────────────────────┘
+                       @
+┌─────────────────────────────────────────────────────────────────┐
+│                  EXPRESS BACKEND (TypeScript)                   │
+│                                                                 │
+│  Hai nhóm route tách biệt:                                      │
+│  ┌──────────────────────────┐  ┌──────────────────────────────┐ │
+│  │   Client API /api/v1/    │  │  Admin API /admin/api/v1/    │ │
+│  │  /user  (auth, no guard) │  │  /auth    (no guard)         │ │
+│  │  /tasks    (JWT guard)   │  │  /tasks   (JWT + RBAC guard) │ │
+│  │  /projects (JWT guard)   │  │  /projects                   │ │
+│  │  /profile  (JWT guard)   │  │  /accounts                   │ │
+│  └──────────┬───────────────┘  │  /roles                      │ │
+│             │                  │  /users                      │ │
+│             │                  │  /dashboard                  │ │
+│             │                  │  /profile                    │ │
+│             │                  └──────────────┬───────────────┘ │
+│             │                                 │                 │
+│  ┌──────────@─────────────────────────────────@──────────────┐  │
+│  │                 Auth.requireAuth Middleware               │  │
+│  │                                                           │  │
+│  │  Client: jwt.verify(token, SECRET_KEY)                    │  │
+│  │          → User.findOne({                                 │  │
+│  │              _id,                                         │  │
+│  │              status:"active",                             │  │
+│  │              deleted:false                                │  │
+│  │            })                                             │  │
+│  │          → inject req.user                                │  │
+│  │                                                           │  │
+│  │  Admin:  jwt.verify(token, SECRET_KEY)                    │  │
+│  │          → Account.findOne({                              │  │
+│  │              _id,                                         │  │
+│  │              status:"active",                             │  │
+│  │              deleted:false                                │  │
+│  │            })                                             │  │
+│  │          → Role.findOne({ _id: account.role_id })         │  │
+│  │          → inject req.account + req.role                  │  │
+│  └──────────────────────────┬────────────────────────────────┘  │
+│                             │                                   │
+│  ┌──────────────────────────@────────────────────────────────┐  │
+│  │                    Controller Layer                       │  │
+│  │                                                           │  │
+│  │  Admin controller: kiểm tra từng action riêng             │  │
+│  │  if (!req.role.permissions.includes("tasks_create"))      │  │
+│  │    → 403 Forbidden                                        │  │
+│  │                                                           │  │
+│  │  Xử lý filter/search/sort/pagination từ query params      │  │
+│  │  Gọi Helper/Service để tính toán phức tạp                 │  │
+│  └──────────────────────────┬────────────────────────────────┘  │
+│                             │                                   │
+│  ┌──────────────────────────@────────────────────────────────┐  │
+│  │               Helper / Service Layer                      │  │
+│  │  pagination.ts        — tính skip/limit/totalPage         │  │
+│  │  subTasks.ts          — dựng cây task đệ quy              │  │
+│  │  getProgress.ts       — tính tiến độ từng user            │  │
+│  │  getProgressProjects  — tính tiến độ từng dự án           │  │
+│  │  getChartTasks/Projects — data cho biểu đồ                │  │
+│  │  getDeadline.ts       — task/project sắp hết hạn          │  │
+│  │  systemProgress.ts    — đếm tổng theo trạng thái          │  │
+│  │  setNameProgress.ts   — thay ID bằng tên hiển thị         │  │
+│  │  sendMail.ts          — wrapper Nodemailer                │  │
+│  │  isPassword.ts        — validate độ mạnh mật khẩu         │  │
+│  └──────────────────────────┬────────────────────────────────┘  │
+│                             │                                   │
+│  ┌──────────────────────────@────────────────────────────────┐  │
+│  │                   Model Layer (Mongoose)                  │  │
+│  │  Account | User | Role | Project | Task | ForgotPassword  │  │
+│  └──────────────────────────┬────────────────────────────────┘  │
+│                             │                                   │
+│  ┌──────────────────────────@────────────────────────────────┐  │
+│  │            Cron Jobs (khởi động cùng server)              │  │
+│  │  cleanUpdatedByJob  — 0 2 * * *  (hàng ngày 2h sáng)      │  │
+│  │  reportDataTasks    — 0 8 * * MON (thứ 2, 8h sáng)        │  │
+│  │  reportDataProject  — 0 8 * * MON (thứ 2, 8h sáng)        │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────┬───────────────────────────────────┘
                               │
-              ┌───────────────▼──────────────────┐
-              │         MongoDB Atlas            │
-              │                                  │
-              │  accounts    — tài khoản admin   │
-              │  users       — người dùng        │
-              │  roles       — nhóm quyền        │
-              │  projects    — dự án             │
-              │  tasks       — công việc         │
-              │  forgot-passwords (TTL 120s)     │
-              └───────────────┬──────────────────┘
+              ┌───────────────@─────────────────┐
+              │         MongoDB Atlas           │
+              │                                 │
+              │  accounts    — tài khoản admin  │
+              │  users       — người dùng       │
+              │  roles       — nhóm quyền       │
+              │  projects    — dự án            │
+              │  tasks       — công việc        │
+              │  forgot-passwords (TTL 120s)    │
+              └───────────────┬─────────────────┘
                               │
-              ┌───────────────▼──────────────────┐
-              │            Cloudinary            │
-              │  (avatar upload qua stream)      │
-              └──────────────────────────────────┘
+              ┌───────────────@─────────────────┐
+              │            Cloudinary           │
+              │  (avatar upload qua stream)     │
+              └─────────────────────────────────┘
 ```
 
 ---
@@ -378,7 +387,15 @@ Backend/
 │       │   │   ├── profile.controller.ts       # Xem/sửa hồ sơ admin đang đăng nhập
 │       │   │   └── replacePassword.controller.ts
 │       │   ├── routes/
-│       │   │   └── index.route.ts      # Mount tất cả admin routes với Auth.requireAuth
+│       │   │   ├── index.route.ts      # Mount tất cả route con dưới đây, gắn Auth.requireAuth
+│       │   │   ├── auth.route.ts       # 3 route (không qua requireAuth)
+│       │   │   ├── dashboards.route.ts # 5 route
+│       │   │   ├── tasks.route.ts      # 15 route (CRUD + subtasks + trash + change-multi)
+│       │   │   ├── projects.route.ts   # 13 route
+│       │   │   ├── accounts.route.ts   # 7 route
+│       │   │   ├── roles.route.ts      # 5 route
+│       │   │   ├── users.route.ts      # 12 route
+│       │   │   └── profile.route.ts    # 2 route
 │       │   ├── services/               # Logic tính toán tách khỏi controller
 │       │   │   ├── getProgress.ts      # Tính tiến độ task theo điều kiện lọc
 │       │   │   ├── getProgressProjects.ts
@@ -409,7 +426,11 @@ Backend/
 │           │   ├── projects.controller.ts      # index, detail, listMember, listTasks
 │           │   └── profile.controller.ts       # profile, editProfile
 │           ├── routes/
-│           │   └── index.route.ts      # Mount client routes, /user không cần auth
+│           │   ├── index.route.ts      # Mount route con, /user không cần auth, còn lại qua requireAuth
+│           │   ├── users.route.ts      # 8 route (register, login, refresh, forgot/otp/reset password...)
+│           │   ├── tasks.route.ts      # 10 route
+│           │   ├── projects.route.ts   # 4 route
+│           │   └── profile.route.ts    # 2 route
 │           ├── services/
 │           │   └── generateRandom.ts   # typeString(n), typeNumber(n) — tạo chuỗi/số ngẫu nhiên
 │           └── validators/
@@ -423,6 +444,59 @@ Backend/
 ├── package.json
 ├── tsconfig.json
 └── .env
+```
+
+### Frontend Project Structure
+
+Phần Frontend không phải trọng tâm của dự án (viết nhanh để có giao diện gọi thử API), nhưng vẫn liệt kê đầy đủ vì 2 thuật toán đáng chú ý (hàng đợi refresh token, render subtask đệ quy) nằm ở đây.
+
+```
+Frontend/
+├── src/
+│   ├── main.tsx                    # Entry point React
+│   ├── App.tsx                     # Định nghĩa toàn bộ route: ClientApp + AdminApp
+│   │
+│   ├── api/
+│   │   ├── client.ts                # Axios instance + interceptor tự refresh token (client)
+│   │   ├── tasks.ts
+│   │   ├── projects.ts
+│   │   └── user.ts
+│   ├── store/
+│   │   └── auth.ts                  # Lưu/đọc access & refresh token trong localStorage (client)
+│   │
+│   ├── components/
+│   │   ├── ProtectedRoute.tsx        # Bọc route cần đăng nhập (client), redirect nếu chưa có token
+│   │   ├── TaskForm.tsx
+│   │   ├── SubtaskCard.tsx           # Render cây subtask đệ quy (component tự gọi lại chính nó)
+│   │   ├── MembersPanel.tsx
+│   │   └── SafeAvatar.tsx
+│   ├── pages/
+│   │   ├── Login.tsx, Register.tsx
+│   │   ├── ForgotPassword.tsx, Otp.tsx, ResetPassword.tsx
+│   │   ├── TasksList.tsx, TaskDetail.tsx
+│   │   ├── ProjectsList.tsx, ProjectDetail.tsx
+│   │   └── Profile.tsx
+│   │
+│   ├── admin/
+│   │   ├── api/
+│   │   │   ├── client.ts             # Axios instance + interceptor riêng cho admin (namespace token khác)
+│   │   │   ├── auth.ts, dashboard.ts, tasks.ts, projects.ts
+│   │   │   ├── accounts.ts, roles.ts, users.ts, profile.ts
+│   │   ├── store/auth.ts             # Token riêng: admin_accessToken, admin_refreshToken
+│   │   ├── components/AdminProtectedRoute.tsx
+│   │   ├── layouts/AdminLayout.tsx
+│   │   └── pages/
+│   │       ├── Login.tsx, Dashboard.tsx
+│   │       ├── Accounts.tsx, AccountDetail.tsx
+│   │       ├── Roles.tsx, Users.tsx, UserDetail.tsx
+│   │       ├── Tasks.tsx, Projects.tsx, Profile.tsx
+│   │
+│   ├── types/
+│   │   ├── index.ts                  # Type dùng chung (TaskStatus, options, màu sắc theo trạng thái...)
+│   │   └── cssmodules.d.ts
+│   └── env.d.ts
+├── package.json
+└── vite.config.ts
 ```
 
 ---
@@ -472,6 +546,59 @@ POST /api/v1/user/refresh-token { refreshToken }
   └─→ 200 OK { accessToken }
       (refreshToken không đổi cho đến khi hết hạn 7 ngày)
 ```
+
+**Thuật toán hàng đợi refresh token phía Frontend (`src/api/client.ts`)**
+
+Khi nhiều request bị 401 gần như cùng lúc (ví dụ trang load song song nhiều API), nếu không kiểm soát sẽ gọi `refresh-token` nhiều lần liên tiếp. Cách xử lý ở đây dùng một cờ `isRefreshing` và một hàng đợi `subscribers` (mảng callback):
+
+```ts
+let isRefreshing = false;
+let subscribers: Array<(token: string) => void> = [];
+
+function onRefreshed(token: string) {
+  subscribers.forEach((cb) => cb(token));   // gọi lại toàn bộ request đang chờ
+  subscribers = [];
+}
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        // Đã có 1 request khác đang refresh — xếp hàng chờ thay vì gọi refresh riêng
+        return new Promise((resolve) => {
+          subscribers.push((token) => {
+            originalRequest.headers['Authorization'] = `Bearer ${token}`;
+            resolve(api(originalRequest));   // gửi lại request gốc khi có token mới
+          });
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+      try {
+        const resp = await axios.post('/api/v1/user/refresh-token', { refreshToken });
+        const newAccess = resp.data.accessToken;
+        setAuth(newAccess);
+        isRefreshing = false;
+        onRefreshed(newAccess);              // giải phóng toàn bộ request đang chờ trong hàng đợi
+        originalRequest.headers['Authorization'] = `Bearer ${newAccess}`;
+        return api(originalRequest);
+      } catch {
+        isRefreshing = false;
+        subscribers = [];
+        clearAuth();
+        window.location.href = '/login';
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+```
+
+Request đầu tiên bị 401 đứng ra gọi `/refresh-token`; các request 401 khác xảy ra trong lúc đó không tự gọi refresh mà đẩy một callback vào `subscribers` rồi "đứng chờ" (Promise chưa resolve). Khi request đầu tiên refresh xong, `onRefreshed(newAccess)` chạy toàn bộ callback trong hàng đợi, mỗi callback gắn token mới vào request gốc rồi gửi lại. Admin dùng một bản sao độc lập của cùng cơ chế này trong `admin/api/client.ts`, với namespace token riêng.
 
 ---
 
@@ -762,6 +889,43 @@ GET /admin/api/v1/dashboard/chart
         → Đếm project theo từng status value
       Trả về { chartTask, chartProject } → Frontend dùng Recharts vẽ
 ```
+
+**Thuật toán tính tiến độ — gom nhóm bằng hashmap trong 1 lần duyệt**
+
+`getProgress` (và tương tự `getChartTasks`) không dùng MongoDB aggregation pipeline (`$group`) mà tự gom nhóm task theo `userId` bằng một object JavaScript đóng vai trò hashmap, duyệt qua kết quả `find()` đúng một lần:
+
+```ts
+export const getProgress = async (condition = {}, sort = { createdAt: -1 }, pagination = { skip: 0, limit: 100 }) => {
+  const tasks = await Task.find({ deleted: false, ...condition })
+    .lean().sort(sort).skip(pagination.skip).limit(pagination.limit);
+
+  const stats: Record<string, IProgress> = {};   // hashmap: userId → số liệu
+
+  for (const task of tasks) {
+    const userId = task.createdBy.toString();
+    if (!stats[userId]) {
+      stats[userId] = { userId, initial: 0, doing: 0, finish: 0, pending: 0, notFinish: 0 };
+    }
+    (stats[userId] as any)[task.status] += 1;      // cộng dồn theo đúng field trạng thái
+
+    // Task quá hạn nhưng chưa "finish" thì tính thêm vào notFinish
+    if (task.status === 'notFinish') continue;
+    if (task.status !== 'finish' && task.timeFinish && task.timeFinish < new Date()) {
+      stats[userId].notFinish += 1;
+    }
+  }
+
+  // Tính completionRate cho từng user sau khi đã gom xong
+  for (const element of Object.values(stats)) {
+    const total = element.initial + element.doing + element.finish + element.pending + element.notFinish;
+    element.completionRate = total > 0 ? (element.finish / total) * 100 : 0;
+  }
+
+  return Object.values(stats);
+};
+```
+
+Cách dùng `(stats[userId] as any)[task.status] += 1` để cộng dồn theo đúng field cùng tên với giá trị `status` là một kỹ thuật gọn — tránh phải viết `if/else` liệt kê từng trạng thái. `getChartTasks` (dùng cho toàn hệ thống, không lọc theo điều kiện) và `getProgress` (dùng cho dashboard có filter) dùng chung cách gom nhóm này, chỉ khác nguồn dữ liệu đầu vào.
 
 ---
 
