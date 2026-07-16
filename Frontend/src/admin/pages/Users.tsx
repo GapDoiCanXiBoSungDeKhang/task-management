@@ -126,7 +126,7 @@ export default function Users() {
     setLoading(true);
     try {
       const res = await fetchAdminUsers({ page, limit, keyword: keyword || undefined, status: status || undefined });
-      setData(res.data || []); setTotal(res.pagination?.totalItems || 0);
+      setData(res.data || []); setTotal(res.pagination?.totalItems ?? (res.pagination?.totalPage || 1) * (res.pagination?.limit || limit));
     } catch (err: any) { message.error(err?.response?.data?.message || 'Lỗi'); }
     finally { setLoading(false); }
   }
@@ -134,7 +134,7 @@ export default function Users() {
   async function loadTrash() {
     try {
       const res = await fetchAdminUsersTrash({ page: trashPage, limit });
-      setTrashData(res.data || []); setTrashTotal(res.pagination?.totalItems || 0);
+      setTrashData(res.data || []); setTrashTotal(res.pagination?.totalItems ?? (res.pagination?.totalPage || 1) * (res.pagination?.limit || limit));
     } catch { }
   }
 

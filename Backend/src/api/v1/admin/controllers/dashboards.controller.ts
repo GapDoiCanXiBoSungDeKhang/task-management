@@ -3,12 +3,10 @@ import { Request, Response } from 'express';
 // models
 import User from '../../../../models/users.model';
 import Account from '../../../../models/accounts.model';
-import Task from '../../../../models/tasks.model';
 import Project from '../../../../models/projects.model';
 
 // services
-import { getProgress } from '../services/getProgress';
-import { makeNameUserInfo } from '../services/setNameProgress';
+import { getProgress, countPerformers } from '../services/getProgress';
 import { getDeadline } from '../services/getDeadline';
 import { systemProgress } from '../services/systemProgress';
 import { projectsProgress } from '../services/getProgressProjects';
@@ -56,46 +54,46 @@ export const controller = {
     try {
       const { status, userId, from, to, keyword }: any = req.query;
 
-      const condition: any = {
-        deleted: false,
-      };
-
-      // Filter by status, user, deadline
-      if (status || userId || (from && to)) {
-        condition.$or = [
-          { status: status },
-          { createdBy: userId },
-          { timeFinish: { $gte: from, $lte: to } },
-        ];
-      }
-
-      // Filter by keyword
+      // Điều kiện lọc ở mức Task — áp dụng riêng cho từng performer khi
+      // truy vấn task của họ (không còn dùng createdBy để nhóm nữa).
+      const taskCondition: any = {};
+      if (status) taskCondition.status = status;
+      if (from && to) taskCondition.timeFinish = { $gte: from, $lte: to };
       if (keyword) {
         const regex = new RegExp(keyword, 'i');
-        condition.$or = [{ title: regex }, { content: regex }];
+        taskCondition.$or = [{ title: regex }, { content: regex }];
       }
+
+      // Điều kiện lọc ở mức Performer — chọn đúng 1 user/account cụ thể
+      const performerCondition: any = {};
+      if (userId) performerCondition._id = userId;
 
       // Sort by ...
       const sort: any = {
-        title: 'desc',
+        fullName: 1,
       };
       if (req.query.sort_key && req.query.sort_value) {
         sort[req.query.sort_key as string] = req.query.sort_value as string;
       }
 
-      const totalTasks = await Task.countDocuments(condition);
+      // Phân trang ở mức USER (account + user), không phải mức Task —
+      // sửa lỗi cũ khiến 1 trang chỉ hiện được 1 người dùng.
+      const totalPerformers = await countPerformers(performerCondition);
       const helperPagination = pagination(
         {
           page: 1,
           limit: 4,
         },
-        totalTasks,
+        totalPerformers,
         req.query
       );
 
-      const progress = await getProgress(condition, sort, helperPagination);
-      // => Make name user
-      await makeNameUserInfo(progress);
+      const progress = await getProgress(
+        taskCondition,
+        performerCondition,
+        sort,
+        helperPagination
+      );
 
       // Deadline
       const deadline = await getDeadline();
@@ -123,13 +121,9 @@ export const controller = {
         deleted: false,
       };
 
-      // Filter by status, user, deadline
-      if (status || (from && to)) {
-        condition.$or = [
-          { status: status },
-          { deadline: { $gte: from, $lte: to } },
-        ];
-      }
+      // Filter by status, deadline
+      if (status) condition.status = status;
+      if (from && to) condition.deadline = { $gte: from, $lte: to };
 
       // Filter by keyword
       if (keyword) {

@@ -19,17 +19,8 @@ export const controller = {
 
     // Filter by status
     const { status, deadline } = req.query;
-    if (status || deadline) {
-      filter.$or = [
-        { status: status },
-        {
-          deadline: {
-            $gte: deadline,
-            $lte: deadline,
-          },
-        },
-      ];
-    }
+    if (status) filter.status = status;
+    if (deadline) filter.deadline = { $gte: deadline, $lte: deadline };
 
     // Sort by ...
     const sort: any = {

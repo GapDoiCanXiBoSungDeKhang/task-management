@@ -52,3 +52,9 @@ export async function changeMulti(ids: string[], key: string, value: any) {
   const res = await api.patch(`/api/v1/tasks/change-multi`, { ids, key, value });
   return res.data;
 }
+
+// Fetch all tasks without pagination (for parent task dropdown)
+export async function fetchAllTasksForDropdown() {
+  const res = await api.get('/api/v1/tasks', { params: { limit: 200, page: 1 } });
+  return res.data;
+}

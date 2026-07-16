@@ -19,7 +19,6 @@ export const controller = {
       }
       const filter: any = {
         deleted: false,
-        status: 'active',
       };
 
       // filter

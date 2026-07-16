@@ -53,7 +53,7 @@ export default function Roles() {
     try {
       const res = await fetchRoles({ page, limit, keyword: keyword || undefined });
       setData(res.data || []);
-      setTotal(res.pagination?.totalItems || 0);
+      setTotal(res.pagination?.totalItems ?? (res.pagination?.totalPage || 1) * (res.pagination?.limit || limit));
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi tải dữ liệu');
     } finally { setLoading(false); }

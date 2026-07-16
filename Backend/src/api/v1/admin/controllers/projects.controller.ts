@@ -3,6 +3,7 @@ import { Response, Request } from 'express';
 // models
 import Project from '../../../../models/projects.model';
 import Account from '../../../../models/accounts.model';
+import User from '../../../../models/users.model';
 
 // helpers
 import { pagination } from '../../../../helpers/pagination';
@@ -18,15 +19,22 @@ export const controller = {
           message: 'Bạn không có quyền truy cập',
         });
       }
-      const admins = await Account.find({
+      const users = await User.find({ deleted: false, status: 'active' })
+        .lean()
+        .select('_id fullName');
+
+      const accounts = await Account.find({
         deleted: false,
         status: 'active',
+        _id: { $ne: req.account._id },
       })
         .lean()
         .select('_id fullName');
+
+      const data = [...users, ...accounts];
       return res.status(200).json({
         success: true,
-        data: admins,
+        data,
       });
     } catch (error) {
       return res.status(500).json({
@@ -52,18 +60,9 @@ export const controller = {
 
         // filter by status, userCreatedBy, deadline
         const { status, createdById, from, to } = req.query;
-        if (status || createdById || (from && to)) {
-          filter.$or = [
-            { status: status },
-            { 'createdBy.createdById': createdById },
-            {
-              deadline: {
-                $gte: from,
-                $lte: to,
-              },
-            },
-          ];
-        }
+        if (status) filter.status = status;
+        if (createdById) filter['createdBy.createdById'] = createdById;
+        if (from && to) filter.deadline = { $gte: from, $lte: to };
 
         // search
         if (req.query.keyword) {

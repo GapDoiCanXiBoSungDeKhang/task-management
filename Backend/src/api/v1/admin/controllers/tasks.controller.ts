@@ -24,6 +24,14 @@ export const controller = {
       const users = await User.find({ deleted: false, status: 'active' })
         .lean()
         .select('_id fullName');
+
+      const accounts = await Account.find({
+        deleted: false,
+        status: 'active',
+        _id: { $ne: req.account._id },
+      })
+        .lean()
+        .select('_id fullName');
       const projects = await Project.find({ deleted: false, status: 'active' })
         .lean()
         .select('_id title');
@@ -32,6 +40,7 @@ export const controller = {
         success: true,
         data: {
           users,
+          accounts,
           projects,
         },
       });
@@ -59,19 +68,10 @@ export const controller = {
 
         // filter by status, userCreatedBy, projectId, deadline
         const { status, createdBy, projectId, from, to } = req.query;
-        if (status || createdBy || projectId || (from && to)) {
-          filter.$or = [
-            { status: status },
-            { createdBy: createdBy },
-            { projectId: projectId },
-            {
-              timeFinish: {
-                $gte: from,
-                $lte: to,
-              },
-            },
-          ];
-        }
+        if (status) filter.status = status;
+        if (createdBy) filter.createdBy = createdBy;
+        if (projectId) filter.projectId = projectId;
+        if (from && to) filter.timeFinish = { $gte: from, $lte: to };
 
         // search
         if (req.query.keyword) {
@@ -211,6 +211,17 @@ export const controller = {
         });
       }
       req.body.createdBy = req.account._id;
+
+      // Người tạo bắt buộc phải nằm trong listUsers của task
+      const creatorId = req.account._id.toString();
+      const listUsers: string[] = Array.isArray(req.body.listUsers)
+        ? req.body.listUsers.map(String)
+        : [];
+      if (!listUsers.includes(creatorId)) {
+        listUsers.push(creatorId);
+      }
+      req.body.listUsers = listUsers;
+
       const newTask = new Task(req.body);
       await newTask.save();
 

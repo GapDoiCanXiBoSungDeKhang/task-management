@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Button, Card, DatePicker, Form, Input, Modal, Popconfirm, Select,
-  Space, Table, Tabs, Tag, message, Descriptions, Skeleton,
+  Space, Table, Tabs, Tag, Typography, message, Descriptions, Skeleton,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { PlusOutlined, EditOutlined, DeleteOutlined, EyeOutlined, RedoOutlined } from '@ant-design/icons';
@@ -12,32 +12,67 @@ import {
   fetchAdminTaskDropdowns, fetchAdminTasks, fetchAdminTaskDetail, fetchAdminTaskSubtasks,
   createAdminTask, editAdminTask, deleteAdminTask, changeAdminTaskStatus,
   changeMultiAdminTasks, fetchAdminTasksTrash, deleteAdminTaskPermanently,
-  restoreAdminTask, changeMultiAdminTasksTrash,
+  restoreAdminTask, changeMultiAdminTasksTrash, fetchAllAdminTasksForDropdown,
 } from '../api/tasks';
 import SubtaskCard from '../../components/SubtaskCard';
+
+function statusDot(status: string): string {
+  const map: Record<string, string> = {
+    initial: '#8c8c8c', doing: '#1677ff', finish: '#52c41a',
+    pending: '#faad14', notFinish: '#ff4d4f',
+  };
+  return map[status] || '#d9d9d9';
+}
 
 // dropdowns data shape: { data: { users: [], projects: [] } }
 function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }: any) {
   const [form] = Form.useForm();
+  const [parentTaskOptions, setParentTaskOptions] = useState<any[]>([]);
 
   useEffect(() => {
-    if (open) {
-      if (editing) {
-        form.setFieldsValue({
-          title: editing.title,
-          content: editing.content,
-          status: editing.status,
-          timeStart: editing.timeStart ? dayjs(editing.timeStart) : undefined,
-          timeFinish: editing.timeFinish ? dayjs(editing.timeFinish) : undefined,
-          listUsers: editing.listUsers || [],
-          projectId: editing.projectId || undefined,
-        });
-      } else {
-        form.resetFields();
-        form.setFieldValue('status', 'initial');
-      }
+    if (!open) return;
+
+    if (editing) {
+      form.setFieldsValue({
+        title: editing.title,
+        content: editing.content,
+        status: editing.status,
+        timeStart: editing.timeStart ? dayjs(editing.timeStart) : undefined,
+        timeFinish: editing.timeFinish ? dayjs(editing.timeFinish) : undefined,
+        listUsers: editing.listUsers || [],
+        projectId: editing.projectId || undefined,
+        taskParentId: editing.taskParentId || undefined,
+      });
+    } else {
+      form.resetFields();
+      form.setFieldValue('status', 'initial');
     }
-  }, [open, editing, form]);
+
+    // Load all tasks for parent dropdown, exclude the task itself (avoid circular ref)
+    fetchAllAdminTasksForDropdown()
+      .then(res => {
+        const currentId = editing?._id;
+        const opts = (res.data || [])
+          .filter((t: any) => t._id !== currentId)
+          .map((t: any) => ({
+            value: t._id,
+            searchText: t.title || '',
+            label: (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                  background: statusDot(t.status), flexShrink: 0,
+                }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {t.title}
+                </span>
+              </span>
+            ),
+          }));
+        setParentTaskOptions(opts);
+      })
+      .catch(() => {});
+  }, [open, editing?._id]);
 
   const handleOk = async () => {
     try {
@@ -46,11 +81,16 @@ function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }
         ...vals,
         timeStart: vals.timeStart?.toISOString?.() || undefined,
         timeFinish: vals.timeFinish?.toISOString?.() || undefined,
+        taskParentId: vals.taskParentId || undefined,
       });
     } catch { }
   };
 
-  const userOptions = (dropdowns?.users || []).map((u: any) => ({ value: u._id, label: u.fullName }));
+  // Backend giờ trả thêm accounts (admin) — trước đây bị thiếu hoàn toàn
+  const userOptions = [
+    ...(dropdowns?.users || []).map((u: any) => ({ value: u._id, label: u.fullName })),
+    ...(dropdowns?.accounts || []).map((a: any) => ({ value: a._id, label: `${a.fullName} (admin)` })),
+  ];
   const projectOptions = (dropdowns?.projects || []).map((p: any) => ({ value: p._id, label: p.title }));
 
   return (
@@ -73,6 +113,31 @@ function TaskFormModal({ open, loading, editing, dropdowns, onCancel, onSubmit }
         <Form.Item name="projectId" label="Dự án">
           <Select options={projectOptions} allowClear placeholder="Chọn dự án" />
         </Form.Item>
+
+        {/* Task cha — dùng logic subtask có sẵn ở backend (taskParentId) */}
+        <Form.Item
+          name="taskParentId"
+          label={
+            <span>
+              Task cha&nbsp;
+              <Typography.Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                (để trống nếu đây là task gốc)
+              </Typography.Text>
+            </span>
+          }
+        >
+          <Select
+            allowClear
+            showSearch
+            placeholder="Chọn task cha..."
+            options={parentTaskOptions}
+            filterOption={(input, opt) =>
+              (opt as any)?.searchText?.toLowerCase().includes(input.toLowerCase())
+            }
+            notFoundContent="Không có task nào"
+          />
+        </Form.Item>
+
         <Form.Item name="timeStart" label="Bắt đầu">
           <DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm" />
         </Form.Item>
@@ -160,7 +225,7 @@ export default function AdminTasks() {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [trashTotal, setTrashTotal] = useState(0);
-  const [dropdowns, setDropdowns] = useState<{ users: any[]; projects: any[] }>({ users: [], projects: [] });
+  const [dropdowns, setDropdowns] = useState<{ users: any[]; accounts: any[]; projects: any[] }>({ users: [], accounts: [], projects: [] });
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [trashSelectedKeys, setTrashSelectedKeys] = useState<React.Key[]>([]);
   const [formOpen, setFormOpen] = useState(false);
@@ -208,7 +273,7 @@ export default function AdminTasks() {
 
   useEffect(() => {
     fetchAdminTaskDropdowns()
-      .then(res => setDropdowns(res.data || { users: [], projects: [] }))
+      .then(res => setDropdowns(res.data || { users: [], accounts: [], projects: [] }))
       .catch(() => {});
   }, []);
 

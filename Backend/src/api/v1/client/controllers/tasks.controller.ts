@@ -13,7 +13,8 @@ export const controller = {
   // [GET] /api/v1/dropdowns/users
   dropdowns: async (req: Request, res: Response) => {
     // create or edit insert listUser tasks
-    const users = await User.find({ deleted: false })
+    // Loại trừ chính mình khỏi danh sách chọn người tham gia
+    const users = await User.find({ deleted: false, _id: { $ne: req.user._id } })
       .lean()
       .select('_id fullName');
 
@@ -242,6 +243,17 @@ export const controller = {
   create: async (req: Request, res: Response) => {
     try {
       req.body.createdBy = req.user._id;
+
+      // Người tạo bắt buộc phải nằm trong listUsers của task
+      const creatorId = req.user._id.toString();
+      const listUsers: string[] = Array.isArray(req.body.listUsers)
+        ? req.body.listUsers.map(String)
+        : [];
+      if (!listUsers.includes(creatorId)) {
+        listUsers.push(creatorId);
+      }
+      req.body.listUsers = listUsers;
+
       const newTask = new Task(req.body);
       await newTask.save();
       res.status(201).json({

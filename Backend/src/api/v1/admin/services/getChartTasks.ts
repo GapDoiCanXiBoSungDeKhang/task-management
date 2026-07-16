@@ -15,61 +15,57 @@ export interface IChart {
 }
 
 export const chartTask = async (): Promise<IChart[]> => {
-  const stats: Record<string, IChart> = {};
-  const tasks: any = await Task.find({ deleted: false }).lean();
-
-  for (const task of tasks) {
-    const userId = task.createdBy.toString();
-    const getFullName = await Account.findOne({
-      _id: userId,
-      deleted: false,
-    })
+  const [accounts, users] = await Promise.all([
+    Account.find({ deleted: false })
       .lean()
-      .select('fullName');
+      .select('_id fullName'),
+    User.find({ deleted: false })
+      .lean()
+      .select('_id fullName')
+  ]);
 
-    let fullName;
-    if (getFullName) {
-      fullName = getFullName.fullName;
-    } else {
-      const user = await User.findOne({ _id: userId })
-        .lean()
-        .select('fullName');
-      fullName = user ? user.fullName : 'không tìm thấy';
+  const performers = [
+    ...accounts.map((a: any) => ({ id: a._id.toString(), fullName: a.fullName })),
+    ...users.map((u: any) => ({ id: u._id.toString(), fullName: u.fullName })),
+  ];
+
+  const stats: IChart[] = [];
+
+  for (const performer of performers) {
+    const tasks: any = await Task.find({
+      deleted: false,
+      listUsers: performer.id,
+    }).lean();
+
+    const item: IChart = {
+      userId: performer.id,
+      fullName: performer.fullName,
+      initial: 0,
+      doing: 0,
+      finish: 0,
+      pending: 0,
+      notFinish: 0,
+      late: 0,
+    };
+
+    for (const task of tasks) {
+      (item as any)[task.status] += 1;
+
+      if (
+        task.status !== 'finish' &&
+        task.timeFinish &&
+        task.timeFinish < Date.now()
+      ) {
+        item.late += 1;
+      }
     }
 
-    if (!stats[userId]) {
-      stats[userId] = {
-        userId,
-        fullName,
-        initial: 0,
-        doing: 0,
-        finish: 0,
-        pending: 0,
-        notFinish: 0,
-        late: 0,
-      };
-    }
-
-    (stats[userId] as any)[task.status] += 1;
-
-    if (
-      task.status !== 'finish' &&
-      task.timeFinish &&
-      task.timeFinish < Date.now()
-    ) {
-      stats[userId].late += 1;
-    }
-  }
-
-  for (const element of Object.values(stats)) {
     const total =
-      element.initial +
-      element.doing +
-      element.finish +
-      element.pending +
-      element.notFinish;
-    element.completionRate = total > 0 ? (element.finish / total) * 100 : 0;
+      item.initial + item.doing + item.finish + item.pending + item.notFinish;
+    item.completionRate = total > 0 ? (item.finish / total) * 100 : 0;
+
+    stats.push(item);
   }
 
-  return Object.values(stats);
+  return stats;
 };

@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
-  Card, Col, Row, Select, Statistic, Table, Tag, Typography,
+  Alert, Card, Col, Row, Select, Statistic, Table, Tag, Typography,
   DatePicker, Space, Input, Progress, Badge,
 } from 'antd';
 import {
-  CheckCircleOutlined, ProjectOutlined, TeamOutlined,
-  SafetyOutlined, TrophyOutlined, ClockCircleOutlined,
+  CheckCircleOutlined, TrophyOutlined, ClockCircleOutlined,
+  PauseCircleOutlined, CloseCircleOutlined, HourglassOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, Cell,
+  ResponsiveContainer,
 } from 'recharts';
 import dayjs from 'dayjs';
 import {
@@ -20,17 +21,24 @@ import { TASK_STATUS_OPTIONS, PROJECT_STATUS_OPTIONS } from '../../types';
 
 const { RangePicker } = DatePicker;
 
-// Colors cho BarChart theo từng status
-const TASK_BAR_COLORS: Record<string, string> = {
-  initial: '#8c8c8c',
-  doing: '#1677ff',
-  finish: '#52c41a',
-  pending: '#faad14',
-  notFinish: '#ff4d4f',
-  late: '#cf1322',
-};
-
-const PROJECT_BAR_COLORS = ['#1677ff', '#52c41a', '#faad14', '#ff4d4f', '#722ed1'];
+/**
+ * Backend pagination helper (helpers/pagination.ts) only returns:
+ *   { page, limit, totalPage, skip }
+ * There is NO totalItems / currentPage field anywhere in the API.
+ * We approximate the antd Table "total" prop as totalPage * limit.
+ */
+function tableTotal(p: any): number {
+  // Backend now returns an exact totalItems field; fall back to the
+  // totalPage*limit approximation for safety if an older API build is hit.
+  if (typeof p?.totalItems === 'number') return p.totalItems;
+  return (p?.totalPage || 1) * (p?.limit || 4);
+}
+function tableCurrent(p: any): number {
+  return p?.page || 1;
+}
+function tablePageSize(p: any): number {
+  return p?.limit || 4;
+}
 
 export default function Dashboard() {
   const [system, setSystem] = useState<any>(null);
@@ -39,13 +47,13 @@ export default function Dashboard() {
   const [dropdowns, setDropdowns] = useState<{ users: any[]; accounts: any[] }>({ users: [], accounts: [] });
   const [taskProgress, setTaskProgress] = useState<any[]>([]);
   const [taskPagination, setTaskPagination] = useState<any>({});
+  const [deadline, setDeadline] = useState<any>(null);
   const [projectProgress, setProjectProgress] = useState<any[]>([]);
   const [projectPagination, setProjectPagination] = useState<any>({});
   const [taskFilters, setTaskFilters] = useState<any>({ page: 1, limit: 4 });
   const [projectFilters, setProjectFilters] = useState<any>({ page: 1, limit: 4 });
-  const [systemExtra, setSystemExtra] = useState<any>({});
 
-  // Load one-time data
+  // Load one-time (unfiltered / unpaginated) data
   useEffect(() => {
     (async () => {
       try {
@@ -58,7 +66,7 @@ export default function Dashboard() {
         // system: { total, initial, doing, finish, pending, notFinish, completionRate }
         setSystem(sysRes.data || {});
 
-        // chartTask: IChart[] — per-user breakdown
+        // chartTask: IChart[] — per-user breakdown (NOT per-status totals)
         // chartProject: IProjectChart[] — per-project breakdown
         setChartTasks(chartRes.chartTask || []);
         setChartProjects(chartRes.chartProject || []);
@@ -71,18 +79,20 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Load task progress (filterable)
+  // Load task progress (filterable, paginated BY TASK not by user — see Alert below)
   useEffect(() => {
     getDashboardProgress(taskFilters)
       .then(res => {
         setTaskProgress(res.data || []);
         setTaskPagination(res.pagination || {});
-        setSystemExtra((prev: any) => ({ ...prev, deadline: res.deadline }));
+        // deadline is a GLOBAL, unfiltered summary across ALL tasks,
+        // returned alongside every /dashboard/progress response
+        setDeadline(res.deadline || null);
       })
       .catch(() => {});
   }, [taskFilters]);
 
-  // Load project progress (filterable)
+  // Load project progress (filterable, paginated by project — 1 row = 1 project, no mismatch)
   useEffect(() => {
     getDashboardProjectsProgress(projectFilters)
       .then(res => {
@@ -92,36 +102,31 @@ export default function Dashboard() {
       .catch(() => {});
   }, [projectFilters]);
 
-  // ── Chart data: Aggregate chartTask array → sum by status ──
-  const taskStatusSummary = chartTasks.reduce(
-    (acc, item) => {
-      acc.initial += item.initial || 0;
-      acc.doing += item.doing || 0;
-      acc.finish += item.finish || 0;
-      acc.pending += item.pending || 0;
-      acc.notFinish += item.notFinish || 0;
-      acc.late += item.late || 0;
-      return acc;
-    },
-    { initial: 0, doing: 0, finish: 0, pending: 0, notFinish: 0, late: 0 }
-  );
+  // ── Chart: Tasks theo Người dùng (Top 8) — mirrors chartTask's real intent ──
+  const totalOfUser = (u: any) =>
+    (u.initial || 0) + (u.doing || 0) + (u.finish || 0) + (u.pending || 0) + (u.notFinish || 0);
 
-  const taskBarData = [
-    { name: 'Chờ xử lý', value: taskStatusSummary.initial, key: 'initial' },
-    { name: 'Đang làm', value: taskStatusSummary.doing, key: 'doing' },
-    { name: 'Hoàn thành', value: taskStatusSummary.finish, key: 'finish' },
-    { name: 'Tạm dừng', value: taskStatusSummary.pending, key: 'pending' },
-    { name: 'Không xong', value: taskStatusSummary.notFinish, key: 'notFinish' },
-    { name: 'Trễ hạn', value: taskStatusSummary.late, key: 'late' },
-  ];
+  const topUsers = [...chartTasks]
+    .sort((a, b) => totalOfUser(b) - totalOfUser(a))
+    .slice(0, 8);
 
-  // ── Chart data: chartProject per-project completion rates ──
-  // Show top 8 projects by completionRate
+  const userBarData = topUsers.map((u) => ({
+    name: u.fullName?.length > 12 ? u.fullName.slice(0, 12) + '…' : u.fullName,
+    fullName: u.fullName,
+    'Chờ xử lý': u.initial,
+    'Đang làm': u.doing,
+    'Hoàn thành': u.finish,
+    'Tạm dừng': u.pending,
+    'Không xong': u.notFinish,
+    'Trễ hạn': u.late,
+  }));
+
+  // ── Chart: Tasks theo Dự án (Top 8) — chartProject ──
   const topProjects = [...chartProjects]
     .sort((a, b) => b.total - a.total)
     .slice(0, 8);
 
-  const projectBarData = topProjects.map(p => ({
+  const projectBarData = topProjects.map((p) => ({
     name: p.title?.length > 14 ? p.title.slice(0, 14) + '…' : p.title,
     fullName: p.title,
     'Đúng hạn': p.onTime,
@@ -130,7 +135,7 @@ export default function Dashboard() {
     'Đang chạy': p.inProgress,
   }));
 
-  // ── Task progress columns (data shape: IProgress with createdBy) ──
+  // ── Task progress columns (IProgress: userId, initial, doing, finish, pending, notFinish, completionRate, createdBy) ──
   const taskProgressColumns = [
     {
       title: 'Người tạo',
@@ -139,11 +144,16 @@ export default function Dashboard() {
         <Space direction="vertical" size={0}>
           <span style={{ fontWeight: 500 }}>{r.createdBy?.fullName || '—'}</span>
           <span style={{ fontSize: 11, color: '#888' }}>{r.createdBy?.email || ''}</span>
-          {r.createdBy?.role && (
-            <Tag color={r.createdBy.role === 'admin' ? 'gold' : 'blue'} style={{ fontSize: 10 }}>
-              {r.createdBy.role === 'admin' ? 'Admin' : 'User'}
-            </Tag>
-          )}
+          <Space size={4}>
+            {r.createdBy?.role && (
+              <Tag color={r.createdBy.role === 'admin' ? 'gold' : 'blue'} style={{ fontSize: 10 }}>
+                {r.createdBy.role === 'admin' ? 'Admin' : 'User'}
+              </Tag>
+            )}
+            {r.createdBy?.phone && (
+              <span style={{ fontSize: 11, color: '#888' }}>{r.createdBy.phone}</span>
+            )}
+          </Space>
         </Space>
       ),
     },
@@ -178,13 +188,18 @@ export default function Dashboard() {
       render: (v: number) => <Badge count={v || 0} showZero color="#1677ff" />,
     },
     {
-      title: 'Trễ hạn',
+      title: 'Tạm dừng',
+      dataIndex: 'pending',
+      render: (v: number) => <Badge count={v || 0} showZero color="#faad14" />,
+    },
+    {
+      title: 'Trễ / Quá hạn',
       dataIndex: 'notFinish',
       render: (v: number) => <Badge count={v || 0} showZero color="#ff4d4f" />,
     },
   ];
 
-  // ── Project progress columns (data shape: IProjectProgress) ──
+  // ── Project progress columns (IProjectProgress: total, onTime, late, overdue, inProgress, completionRate) ──
   const projectProgressColumns = [
     {
       title: 'Tên dự án',
@@ -213,6 +228,11 @@ export default function Dashboard() {
       render: (v: number) => <Tag color="red">{v}</Tag>,
     },
     {
+      title: 'Đang chạy',
+      dataIndex: 'inProgress',
+      render: (v: number) => <Tag color="blue">{v}</Tag>,
+    },
+    {
       title: 'Hoàn thành',
       dataIndex: 'completionRate',
       render: (v: number) => (
@@ -226,89 +246,144 @@ export default function Dashboard() {
     },
   ];
 
-  const totalTasks = system?.total ?? 0;
-  const totalFinish = system?.finish ?? 0;
-  const completionRate = system?.completionRate ?? 0;
+  // system: { total, initial, doing, finish, pending, notFinish, completionRate } — 7 fields, all shown below
+  const s = system || {};
 
   return (
     <div>
       <Typography.Title level={4} style={{ marginBottom: 24 }}>Dashboard</Typography.Title>
 
-      {/* ── System Stats ── */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} lg={6}>
+      {/* ── System Stats — tất cả 7 giá trị backend trả về ── */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={8} md={6}>
           <Card>
             <Statistic
               title="Tổng Tasks"
-              value={totalTasks}
+              value={s.total ?? 0}
               prefix={<CheckCircleOutlined style={{ color: '#1677ff' }} />}
-              suffix={<span style={{ fontSize: 12, color: '#888' }}>tasks</span>}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={8} md={6}>
           <Card>
             <Statistic
-              title="Hoàn thành"
-              value={totalFinish}
-              prefix={<TrophyOutlined style={{ color: '#52c41a' }} />}
-              suffix={<span style={{ fontSize: 12, color: '#888' }}>/{totalTasks}</span>}
+              title="Chờ xử lý"
+              value={s.initial ?? 0}
+              prefix={<HourglassOutlined style={{ color: '#8c8c8c' }} />}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={8} md={6}>
           <Card>
             <Statistic
               title="Đang làm"
-              value={system?.doing ?? 0}
-              prefix={<ClockCircleOutlined style={{ color: '#faad14' }} />}
-              suffix={<span style={{ fontSize: 12, color: '#888' }}>tasks</span>}
+              value={s.doing ?? 0}
+              prefix={<ClockCircleOutlined style={{ color: '#1677ff' }} />}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={12} sm={8} md={6}>
           <Card>
-            <div style={{ marginBottom: 8, color: 'rgba(0,0,0,0.45)', fontSize: 14 }}>
-              <SafetyOutlined style={{ color: '#722ed1', marginRight: 6 }} />
-              Tỉ lệ hoàn thành
-            </div>
-            <Progress
-              type="circle"
-              percent={Math.round(completionRate || 0)}
-              size={72}
-              strokeColor={completionRate >= 80 ? '#52c41a' : completionRate >= 50 ? '#faad14' : '#ff4d4f'}
+            <Statistic
+              title="Tạm dừng"
+              value={s.pending ?? 0}
+              prefix={<PauseCircleOutlined style={{ color: '#faad14' }} />}
             />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card>
+            <Statistic
+              title="Hoàn thành"
+              value={s.finish ?? 0}
+              prefix={<TrophyOutlined style={{ color: '#52c41a' }} />}
+              suffix={<span style={{ fontSize: 12, color: '#888' }}>/{s.total ?? 0}</span>}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card>
+            <Statistic
+              title="Không xong"
+              value={s.notFinish ?? 0}
+              prefix={<CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={8} md={12}>
+          <Card>
+            <Space align="center" size={16}>
+              <Progress
+                type="circle"
+                percent={Math.round(s.completionRate || 0)}
+                size={64}
+                strokeColor={(s.completionRate || 0) >= 80 ? '#52c41a' : (s.completionRate || 0) >= 50 ? '#faad14' : '#ff4d4f'}
+              />
+              <div>
+                <div style={{ color: 'rgba(0,0,0,0.45)', fontSize: 14 }}>
+                  <SafetyOutlined style={{ marginRight: 6 }} />
+                  Tỉ lệ hoàn thành
+                </div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+                  Tính trên toàn bộ {s.total ?? 0} tasks trong hệ thống
+                </div>
+              </div>
+            </Space>
           </Card>
         </Col>
       </Row>
 
-      {/* ── Charts ── */}
+      {/* ── Deadline tổng quan — toàn bộ hệ thống, không lọc, kèm mỗi lần gọi /dashboard/progress ── */}
+      {deadline && (
+        <Card size="small" style={{ marginBottom: 24 }}>
+          <Space wrap size={24}>
+            <Typography.Text type="secondary">Tổng quan Deadline (toàn hệ thống):</Typography.Text>
+            <Tag color="green">Đúng hạn: {deadline.onTime ?? 0}</Tag>
+            <Tag color="orange">Trễ: {deadline.late ?? 0}</Tag>
+            <Tag color="red">Quá hạn: {deadline.overdue ?? 0}</Tag>
+            <Tag color="blue">Đang chạy: {deadline.inProgress ?? 0}</Tag>
+          </Space>
+        </Card>
+      )}
+
+      {/* ── Charts: theo Người dùng & theo Dự án (đúng ý nghĩa dữ liệu backend trả) ── */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} lg={12}>
-          <Card title="Thống kê Tasks theo trạng thái" bodyStyle={{ paddingTop: 8 }}>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={taskBarData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v) => [v, 'Số lượng']} />
-                <Bar dataKey="value" radius={[4, 4, 0, 0]}>
-                  {taskBarData.map((entry) => (
-                    <Cell key={entry.key} fill={TASK_BAR_COLORS[entry.key] || '#1677ff'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Tiến độ Tasks theo Dự án (Top 8)" bodyStyle={{ paddingTop: 8 }}>
-            {projectBarData.length === 0 ? (
-              <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+          <Card title="Thống kê Tasks theo Người dùng (Top 8)" bodyStyle={{ paddingTop: 8 }}>
+            {userBarData.length === 0 ? (
+              <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
                 Chưa có dữ liệu
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={userBarData} margin={{ top: 8, right: 8, left: -16, bottom: 32 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName || ''}
+                    formatter={(v, name) => [v, name]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                  <Bar dataKey="Hoàn thành" stackId="a" fill="#52c41a" />
+                  <Bar dataKey="Đang làm" stackId="a" fill="#1677ff" />
+                  <Bar dataKey="Chờ xử lý" stackId="a" fill="#8c8c8c" />
+                  <Bar dataKey="Tạm dừng" stackId="a" fill="#faad14" />
+                  <Bar dataKey="Không xong" stackId="a" fill="#ff4d4f" />
+                  <Bar dataKey="Trễ hạn" stackId="a" fill="#722ed1" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card title="Thống kê Tasks theo Dự án (Top 8)" bodyStyle={{ paddingTop: 8 }}>
+            {projectBarData.length === 0 ? (
+              <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999' }}>
+                Chưa có dữ liệu
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={projectBarData} margin={{ top: 8, right: 8, left: -16, bottom: 32 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-20} textAnchor="end" />
@@ -381,19 +456,26 @@ export default function Dashboard() {
           </Space>
         }
       >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Lưu ý về phân trang"
+          description="API này phân trang theo số lượng task đã lọc (không phải theo số người dùng). Vì vậy một trang có thể chỉ hiển thị 1 người dùng nếu các task trong trang đó cùng người tạo."
+        />
         <Table
           rowKey="userId"
           dataSource={taskProgress}
           columns={taskProgressColumns}
           pagination={{
-            current: taskPagination.currentPage || 1,
-            pageSize: taskPagination.limit || 4,
-            total: taskPagination.totalItems || 0,
-            showTotal: (t) => `Tổng ${t} người dùng`,
+            current: tableCurrent(taskPagination),
+            pageSize: tablePageSize(taskPagination),
+            total: tableTotal(taskPagination),
+            showTotal: () => `Trang ${tableCurrent(taskPagination)} / ${taskPagination.totalPage || 1}`,
             onChange: (p) => setTaskFilters((f: any) => ({ ...f, page: p })),
           }}
           size="small"
-          scroll={{ x: 600 }}
+          scroll={{ x: 700 }}
         />
       </Card>
 
@@ -438,14 +520,14 @@ export default function Dashboard() {
           dataSource={projectProgress}
           columns={projectProgressColumns}
           pagination={{
-            current: projectPagination.currentPage || 1,
-            pageSize: projectPagination.limit || 4,
-            total: projectPagination.totalItems || 0,
-            showTotal: (t) => `Tổng ${t} dự án`,
+            current: tableCurrent(projectPagination),
+            pageSize: tablePageSize(projectPagination),
+            total: tableTotal(projectPagination),
+            showTotal: () => `Trang ${tableCurrent(projectPagination)} / ${projectPagination.totalPage || 1}`,
             onChange: (p) => setProjectFilters((f: any) => ({ ...f, page: p })),
           }}
           size="small"
-          scroll={{ x: 600 }}
+          scroll={{ x: 700 }}
         />
       </Card>
     </div>

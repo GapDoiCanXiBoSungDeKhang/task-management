@@ -68,3 +68,9 @@ export async function changeMultiAdminTasksTrash(ids: string[], key: string, val
   const res = await adminApi.patch(`${BASE}/trash/change-multi`, { ids, key, value });
   return res.data;
 }
+
+// Fetch all tasks for parent task dropdown
+export async function fetchAllAdminTasksForDropdown() {
+  const res = await adminApi.get(BASE, { params: { limit: 200, page: 1 } });
+  return res.data;
+}

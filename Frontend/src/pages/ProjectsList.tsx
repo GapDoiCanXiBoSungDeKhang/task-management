@@ -55,7 +55,7 @@ export default function ProjectsList() {
       });
       setData(res.data || []);
       const pg = res.pagination || {};
-      const t = pg.totalItems || pg.total || (pg.totalPages * pg.limit) || 0;
+      const t = typeof pg.totalItems === 'number' ? pg.totalItems : (pg.totalPage || 1) * (pg.limit || limit);
       setTotal(t || (page - 1) * limit + (res.data?.length || 0));
     } catch (err: any) {
       message.error(err?.response?.data?.message || 'Lỗi tải dự án');

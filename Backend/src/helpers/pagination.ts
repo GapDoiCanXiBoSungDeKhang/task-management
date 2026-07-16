@@ -7,6 +7,8 @@ export const pagination = (objectPagination: any, totalTasks: number, query: any
   }
   objectPagination.totalPage = Math.ceil(totalTasks / objectPagination.limit);
   objectPagination.skip = (objectPagination.page - 1) * objectPagination.limit;
+  // Exact total item count — additive field, safe for existing consumers that ignore it
+  objectPagination.totalItems = totalTasks;
 
   return objectPagination;
 }
