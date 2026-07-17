@@ -8,7 +8,7 @@ Mục tiêu khi làm dự án này là thực hành thiết kế API có đầy 
 
 ## Quá trình xây dựng
 
-Phần Backend được làm trong quá trình tự học theo hướng backend, có theo dõi và tham khảo các dự án mã nguồn mở trên GitHub cũng như các bài chia sẻ trên mạng xã hội. Trọng tâm học chủ yếu xoay quanh cách thiết kế REST API và test API bằng Postman, song song với việc dựng luồng nghiệp vụ cơ bản (auth, RBAC, CRUD, upload, cron job). Một số thuật toán và hàm hỗ trợ (dựng cây subtask đệ quy, cơ chế hàng đợi refresh token phía Frontend, cron job xuất báo cáo Excel) có dùng ChatGPT, Gemini để hỗ trợ viết code mẫu và debug lỗi; Gemini được dùng để tìm hiểu thêm về nghiệp vụ, chủ yếu là các luồng quản trị (admin) cơ bản như phân quyền, quản lý task/dự án.
+Phần Backend được làm trong quá trình tự học theo hướng backend, có theo dõi và tham khảo các dự án mã nguồn mở trên GitHub cũng như các bài chia sẻ trên mạng xã hội. Trọng tâm học chủ yếu xoay quanh cách thiết kế REST API và test API bằng Postman, song song với việc dựng luồng nghiệp vụ cơ bản (auth, RBAC, CRUD, upload, cron job). Một số thuật toán và hàm hỗ trợ (dựng cây subtask đệ quy, cơ chế hàng đợi refresh token phía Frontend, cron job xuất báo cáo Excel) có dùng ChatGPT để hỗ trợ viết code mẫu và debug lỗi; Gemini được dùng để tìm hiểu thêm về nghiệp vụ, chủ yếu là các luồng quản trị (admin) cơ bản như phân quyền, quản lý task/dự án.
 
 ---
 
@@ -866,66 +866,84 @@ GET /admin/api/v1/dashboard/system
         → Task.countDocuments({ status: "initial" })
       Trả về object số liệu tổng toàn hệ thống
 
-[Tiến độ task theo điều kiện lọc]
+[Tiến độ theo từng người — điểm mấu chốt: gom theo NGƯỜI ĐƯỢC GIAO, không phải người tạo]
 GET /admin/api/v1/dashboard/progress
   Query params: status, userId, from, to, keyword, sort_key, sort_value, page, limit
 
   Controller flow:
-  1. Xây dựng condition từ query params
-  2. pagination(defaultConfig, totalCount, req.query)
-  3. progress = await getProgress(condition, sort, pagination)
-     → Tính completion rate từng task/user
-  4. await makeNameUserInfo(progress)
-     → Thay createdBy ID bằng fullName (query Account hoặc User)
-  5. deadline = await getDeadline()
-     → Lấy task/project có timeFinish < Date.now + 3 ngày
+  1. Xây dựng performerCondition từ query params (lọc theo Account/User)
+  2. progress = await getProgress(performerCondition, sort, pagination)
+     → Trả về tiến độ theo TỪNG NGƯỜI (không phải theo từng task)
+  3. deadline = await getDeadline()
+     → Duyệt toàn bộ task, phân loại onTime/late/overdue/inProgress
   └─→ { data: progress, pagination, deadline }
 
 [Data cho biểu đồ]
 GET /admin/api/v1/dashboard/chart
-  ├─→ chartTask = await getChartTasks()
-  │     → Đếm task theo từng status value → { initial: N, doing: N, finish: N, ... }
+  ├─→ chartTask = await chartTask()      → tiến độ + số task trễ hạn theo từng người
   └─→ chartProject = await getChartProjects()
-        → Đếm project theo từng status value
       Trả về { chartTask, chartProject } → Frontend dùng Recharts vẽ
 ```
 
-**Thuật toán tính tiến độ — gom nhóm bằng hashmap trong 1 lần duyệt**
+**Thuật toán tính tiến độ — lấy danh sách người trước, query task theo từng người**
 
-`getProgress` (và tương tự `getChartTasks`) không dùng MongoDB aggregation pipeline (`$group`) mà tự gom nhóm task theo `userId` bằng một object JavaScript đóng vai trò hashmap, duyệt qua kết quả `find()` đúng một lần:
+`getProgress` lấy toàn bộ performer (gộp cả `Account` và `User`, đều có thể được giao task), phân trang theo performer, sau đó với **mỗi performer** query riêng các task mà họ có trong `listUsers` (người được giao), rồi đếm task theo từng trạng thái:
 
 ```ts
-export const getProgress = async (condition = {}, sort = { createdAt: -1 }, pagination = { skip: 0, limit: 100 }) => {
-  const tasks = await Task.find({ deleted: false, ...condition })
-    .lean().sort(sort).skip(pagination.skip).limit(pagination.limit);
+export const getProgress = async (
+  performerCondition: any = {},
+  sort: any = { fullName: 1 },
+  pagination: any = { skip: 0, limit: 100 }
+): Promise<IProgress[]> => {
+  const [accounts, users] = await Promise.all([
+    Account.find({ deleted: false, ...performerCondition }).sort(sort).lean()
+      .select('_id fullName email phone'),
+    User.find({ deleted: false, ...performerCondition }).sort(sort).lean()
+      .select('_id fullName email phone'),
+  ]);
 
-  const stats: Record<string, IProgress> = {};   // hashmap: userId → số liệu
+  const performers = [
+    ...accounts.map((a: any) => ({ ...a, role: 'admin' })),
+    ...users.map((u: any) => ({ ...u, role: 'user' })),
+  ];
 
-  for (const task of tasks) {
-    const userId = task.createdBy.toString();
-    if (!stats[userId]) {
-      stats[userId] = { userId, initial: 0, doing: 0, finish: 0, pending: 0, notFinish: 0 };
+  const paginated = performers.slice(pagination.skip, pagination.skip + pagination.limit);
+
+  const stats: IProgress[] = [];
+
+  for (const performer of paginated) {
+    // Query riêng cho TỪNG performer — gom theo người ĐƯỢC GIAO (listUsers), không phải người tạo (createdBy)
+    const tasks: any = await Task.find({
+      deleted: false,
+      listUsers: performer._id.toString(),
+    }).lean();
+
+    const item: IProgress = {
+      userId: performer._id.toString(),
+      initial: 0, doing: 0, finish: 0, pending: 0, notFinish: 0,
+      createdBy: { fullName: performer.fullName, role: performer.role, phone: performer.phone, email: performer.email },
+    };
+
+    for (const task of tasks) {
+      if (item.hasOwnProperty(task.status)) {
+        (item as any)[task.status] += 1;
+      }
+      if (task.status === 'notFinish') continue;
+      if (task.status !== 'finish' && task.timeFinish && new Date(task.timeFinish) < new Date()) {
+        item.notFinish += 1;
+      }
     }
-    (stats[userId] as any)[task.status] += 1;      // cộng dồn theo đúng field trạng thái
 
-    // Task quá hạn nhưng chưa "finish" thì tính thêm vào notFinish
-    if (task.status === 'notFinish') continue;
-    if (task.status !== 'finish' && task.timeFinish && task.timeFinish < new Date()) {
-      stats[userId].notFinish += 1;
-    }
+    const total = item.initial + item.doing + item.finish + item.pending + item.notFinish;
+    item.completionRate = total > 0 ? (item.finish / total) * 100 : 0;
+    stats.push(item);
   }
 
-  // Tính completionRate cho từng user sau khi đã gom xong
-  for (const element of Object.values(stats)) {
-    const total = element.initial + element.doing + element.finish + element.pending + element.notFinish;
-    element.completionRate = total > 0 ? (element.finish / total) * 100 : 0;
-  }
-
-  return Object.values(stats);
+  return stats;
 };
 ```
 
-Cách dùng `(stats[userId] as any)[task.status] += 1` để cộng dồn theo đúng field cùng tên với giá trị `status` là một kỹ thuật gọn — tránh phải viết `if/else` liệt kê từng trạng thái. `getChartTasks` (dùng cho toàn hệ thống, không lọc theo điều kiện) và `getProgress` (dùng cho dashboard có filter) dùng chung cách gom nhóm này, chỉ khác nguồn dữ liệu đầu vào.
+**Đánh đổi cần lưu ý:** cách này sửa đúng ngữ nghĩa nghiệp vụ — tiến độ phải tính theo người **được giao việc** (`listUsers`) chứ không phải người **tạo ra task** (`createdBy`, thường là admin tạo hộ). Nhưng đổi lại, số lượt truy vấn database tăng theo số lượng performer: 1 query lấy danh sách người, rồi N query task (N = số người trong trang hiện tại) — thay vì gom nhóm toàn bộ trong 1 lần `find()` như cách tiếp cận trước đó. `chartTask` (dùng cho biểu đồ tổng, không phân trang) và `projectsProgress` (tính theo từng dự án thay vì từng người) dùng chung kiểu cấu trúc "lấy entity cha trước, query con theo từng entity cha" này.
 
 ---
 
