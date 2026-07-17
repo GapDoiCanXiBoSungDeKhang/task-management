@@ -18,28 +18,21 @@ export interface IProgress {
   };
 }
 
-// Đếm tổng số performer (account + user) khớp điều kiện — dùng để tính pagination
-// ở mức USER, giống cách Project.countDocuments() dùng cho projectsProgress.
 export const countPerformers = async (
   performerCondition: any = {}
 ): Promise<number> => {
   const [totalAccounts, totalUsers] = await Promise.all([
     Account.countDocuments({ deleted: false, ...performerCondition }),
-    User.countDocuments({ deleted: false, ...performerCondition })
+    User.countDocuments({ deleted: false, ...performerCondition }),
   ]);
   return totalAccounts + totalUsers;
 };
 
 export const getProgress = async (
-  taskCondition: any = {},
   performerCondition: any = {},
   sort: any = { fullName: 1 },
   pagination: any = { skip: 0, limit: 100 }
 ): Promise<IProgress[]> => {
-  
-  // Lấy toàn bộ người có thể tham gia task (admin + user), giống cách lấy
-  // toàn bộ Project ở projectsProgress, thay vì dò theo createdBy.
-  // Thực hiện truy vấn song song bằng Promise.all kết hợp sắp xếp từ Database.
   const [accounts, users] = await Promise.all([
     Account.find({ deleted: false, ...performerCondition })
       .sort(sort)
@@ -48,7 +41,7 @@ export const getProgress = async (
     User.find({ deleted: false, ...performerCondition })
       .sort(sort)
       .lean()
-      .select('_id fullName email phone')
+      .select('_id fullName email phone'),
   ]);
 
   const performers = [
@@ -56,8 +49,6 @@ export const getProgress = async (
     ...users.map((u: any) => ({ ...u, role: 'user' })),
   ];
 
-  // Sort + phân trang ở mức USER (không phải mức Task) — sửa đúng lỗi cũ khiến
-  // 1 trang chỉ hiện được 1 người dùng do phân trang nhầm theo Task.
   const paginated = performers.slice(
     pagination.skip,
     pagination.skip + pagination.limit
@@ -65,14 +56,10 @@ export const getProgress = async (
 
   const stats: IProgress[] = [];
 
-  // N+1 query chấp nhận được: với mỗi performer trong trang hiện tại, truy vấn
-  // task mà họ có trong listUsers (bao gồm cả người tạo, vì khi tạo task luôn
-  // được thêm vào listUsers).
   for (const performer of paginated) {
     const tasks: any = await Task.find({
       deleted: false,
       listUsers: performer._id.toString(),
-      ...taskCondition,
     }).lean();
 
     const item: IProgress = {

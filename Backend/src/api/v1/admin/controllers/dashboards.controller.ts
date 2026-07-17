@@ -52,19 +52,9 @@ export const controller = {
   // [GET] /api/v1/admin/dashboard/progress
   progress: async (req: Request, res: Response) => {
     try {
-      const { status, userId, from, to, keyword }: any = req.query;
+      const { userId }: any = req.query;
 
-      // Điều kiện lọc ở mức Task — áp dụng riêng cho từng performer khi
-      // truy vấn task của họ (không còn dùng createdBy để nhóm nữa).
-      const taskCondition: any = {};
-      if (status) taskCondition.status = status;
-      if (from && to) taskCondition.timeFinish = { $gte: from, $lte: to };
-      if (keyword) {
-        const regex = new RegExp(keyword, 'i');
-        taskCondition.$or = [{ title: regex }, { content: regex }];
-      }
-
-      // Điều kiện lọc ở mức Performer — chọn đúng 1 user/account cụ thể
+      // Filter ...
       const performerCondition: any = {};
       if (userId) performerCondition._id = userId;
 
@@ -76,8 +66,6 @@ export const controller = {
         sort[req.query.sort_key as string] = req.query.sort_value as string;
       }
 
-      // Phân trang ở mức USER (account + user), không phải mức Task —
-      // sửa lỗi cũ khiến 1 trang chỉ hiện được 1 người dùng.
       const totalPerformers = await countPerformers(performerCondition);
       const helperPagination = pagination(
         {
@@ -89,7 +77,6 @@ export const controller = {
       );
 
       const progress = await getProgress(
-        taskCondition,
         performerCondition,
         sort,
         helperPagination
