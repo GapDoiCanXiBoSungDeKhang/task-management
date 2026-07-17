@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Alert, Card, Col, Row, Select, Statistic, Table, Tag, Typography,
+  Card, Col, Row, Select, Statistic, Table, Tag, Typography,
   DatePicker, Space, Input, Progress, Badge,
 } from 'antd';
 import {
@@ -17,7 +17,7 @@ import {
   getDashboardDropdowns, getDashboardProgress, getDashboardProjectsProgress,
   getDashboardChart, getDashboardSystem,
 } from '../api/dashboard';
-import { TASK_STATUS_OPTIONS, PROJECT_STATUS_OPTIONS } from '../../types';
+import { PROJECT_STATUS_OPTIONS } from '../../types';
 
 const { RangePicker } = DatePicker;
 
@@ -79,7 +79,7 @@ export default function Dashboard() {
     })();
   }, []);
 
-  // Load task progress (filterable, paginated BY TASK not by user — see Alert below)
+  // Load task progress (filterable by user, paginated by user)
   useEffect(() => {
     getDashboardProgress(taskFilters)
       .then(res => {
@@ -410,19 +410,6 @@ export default function Dashboard() {
         style={{ marginBottom: 16 }}
         extra={
           <Space wrap size="small">
-            <Input.Search
-              placeholder="Tìm task"
-              allowClear
-              size="small"
-              style={{ width: 160 }}
-              onSearch={(v) => setTaskFilters((f: any) => ({ ...f, keyword: v, page: 1 }))}
-            />
-            <Select
-              placeholder="Trạng thái"
-              allowClear size="small" style={{ width: 140 }}
-              onChange={(v) => setTaskFilters((f: any) => ({ ...f, status: v || undefined, page: 1 }))}
-              options={TASK_STATUS_OPTIONS}
-            />
             <Select
               placeholder="Người dùng"
               allowClear size="small" style={{ width: 170 }}
@@ -436,33 +423,9 @@ export default function Dashboard() {
                 ...dropdowns.accounts.map(a => ({ value: a._id, label: `${a.fullName} (admin)` })),
               ]}
             />
-            <RangePicker
-              size="small"
-              onChange={(dates) => {
-                if (dates?.[0] && dates?.[1]) {
-                  setTaskFilters((f: any) => ({
-                    ...f,
-                    from: dates[0]!.format('YYYY-MM-DD'),
-                    to: dates[1]!.format('YYYY-MM-DD'),
-                    page: 1,
-                  }));
-                } else {
-                  setTaskFilters((f: any) => {
-                    const n = { ...f }; delete n.from; delete n.to; return n;
-                  });
-                }
-              }}
-            />
           </Space>
         }
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="Lưu ý về phân trang"
-          description="API này phân trang theo số lượng task đã lọc (không phải theo số người dùng). Vì vậy một trang có thể chỉ hiển thị 1 người dùng nếu các task trong trang đó cùng người tạo."
-        />
         <Table
           rowKey="userId"
           dataSource={taskProgress}
